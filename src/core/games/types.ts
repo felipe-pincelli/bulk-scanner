@@ -1,10 +1,9 @@
 /**
  * Contrato que cada jogo (TCG) precisa cumprir.
  * Hoje só existe Magic; no futuro: Pokémon (Pokémon TCG API), Yu-Gi-Oh! (YGOPRODeck).
- * Nas próximas etapas este contrato ganha a parte de preços.
  */
 
-/** Retângulo em FRAÇÕES da carta (0 a 1), medido a partir do canto superior esquerdo. */
+/** Retângulo em FRAÇÕES (0 a 1), medido a partir do canto superior esquerdo. */
 export interface Region {
   x: number;
   y: number;
@@ -16,6 +15,31 @@ export interface Region {
 export interface NameEntry {
   matchText: string;
   cardName: string;
+}
+
+/** Faixa de preço de uma carta (todas as impressões), em dólares. */
+export interface PriceInfo {
+  /** Impressão mais barata (sem foil; se só existir foil, o foil mais barato). */
+  minUsd: number | null;
+  /** Impressão sem foil mais cara. */
+  maxNonfoilUsd: number | null;
+  /** Impressão mais cara, incluindo foil. */
+  maxUsd: number | null;
+  /** Edição da impressão mais cara. */
+  maxSet: string;
+  maxSetName: string;
+  maxFinish: 'nonfoil' | 'foil' | 'etched' | '';
+}
+
+/** Tudo o que o app precisa de um jogo: nomes (para o OCR) e preços. */
+export interface CardIndex {
+  entries: NameEntry[];
+  prices: Map<string, PriceInfo>;
+  source: string;
+  pricesUpdatedAt: string;
+  builtAt: string;
+  /** Cotação USD→BRL do momento em que o índice foi gerado (reserva). */
+  usdBrl: number | null;
 }
 
 export interface GameProvider {
@@ -33,6 +57,8 @@ export interface GameProvider {
   nameSearchBand: Region;
   /** Caracteres que podem aparecer num nome (ajuda o OCR a não "inventar" símbolos). */
   nameCharWhitelist: string;
-  /** Carrega a lista de nomes usada para corrigir erros do OCR. */
-  loadNames(baseUrl: string): Promise<{ entries: NameEntry[]; updatedAt?: string }>;
+  /** Arquivo do índice, relativo à pasta do site (gerado por scripts/build-data.ts). */
+  indexFile: string;
+  /** Converte o arquivo do índice no formato comum a todos os jogos. */
+  parseIndex(json: unknown): CardIndex;
 }

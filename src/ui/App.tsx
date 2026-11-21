@@ -2,14 +2,17 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { listCameras, startCamera, stopCamera, type CameraDevice } from '../core/camera/cameraService';
 import { screenRectToVideoRect } from '../core/camera/geometry';
 import { defaultGame } from '../core/games/registry';
+import type { PriceInfo } from '../core/games/types';
 import { FuzzyMatcher } from '../core/matching/fuzzyMatcher';
+import { loadCardIndex } from '../core/prices/cardDatabase';
+import { formatPrice, getUsdBrl, type Rate } from '../core/prices/currency';
 import { TesseractEngine } from '../core/ocr/tesseractEngine';
 import { orientationLabel, rotateRegion } from '../core/scanner/orientation';
 import { Scanner, type ScanRead } from '../core/scanner/scanner';
 
 /**
- * PROTÓTIPO (Etapa 1): câmera + OCR do nome + correção pela lista de nomes.
- * Mostra números de diagnóstico para medirmos velocidade e precisão.
+ * Etapa 2: câmera + OCR do nome + correção pela lista de nomes + preço em R$.
+ * Os números de diagnóstico ficam em "Ajustes e diagnóstico".
  */
 
 const BASE = import.meta.env.BASE_URL;
@@ -35,6 +38,29 @@ interface HistoryItem {
   at: number;
 }
 
+const finishLabel: Record<PriceInfo['maxFinish'], string> = {
+  nonfoil: 'normal',
+  foil: 'foil',
+  etched: 'foil etched',
+  '': '',
+};
+
+function PriceLine({ info, rate }: { info: PriceInfo | undefined; rate: Rate | null }) {
+  if (!info || info.maxUsd === null) return <div className="price none">sem preço no Scryfall</div>;
+  const showNonfoil = info.maxNonfoilUsd !== null && info.maxNonfoilUsd !== info.maxUsd;
+  return (
+    <div className="price">
+      <span className="range">
+        {info.minUsd === info.maxUsd ? formatPrice(info.maxUsd, rate) : `${formatPrice(info.minUsd, rate)} – ${formatPrice(info.maxUsd, rate)}`}
+      </span>
+      <span className="detail">
+        mais cara: {info.maxSetName} ({finishLabel[info.maxFinish]})
+        {showNonfoil && ` · sem foil até ${formatPrice(info.maxNonfoilUsd, rate)}`}
+      </span>
+    </div>
+  );
+}
+
 export function App() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const zoneRef = useRef<HTMLDivElement>(null);
@@ -49,7 +75,11 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [ocrStatus, setOcrStatus] = useState('não carregado');
-  const [namesStatus, setNamesStatus] = useState('carregando…');
+  const [dataStatus, setDataStatus] = useState('carregando…');
+  const [dataWarning, setDataWarning] = useState<string | null>(null);
+  const [updating, setUpdating] = useState(false);
+  const [prices, setPrices] = useState<Map<string, PriceInfo>>(new Map());
+  const [rate, setRate] = useState<Rate | null>(null);
   const [cameras, setCameras] = useState<CameraDevice[]>([]);
   const [deviceId, setDeviceId] = useState(() => loadPref('cameraId', ''));
   const [zoneSize, setZoneSize] = useState(() => Number(loadPref('zoneSize', '0.92')));
@@ -58,19 +88,30 @@ export function App() {
   const [readsPerSec, setReadsPerSec] = useState(0);
   const [history, setHistory] = useState<HistoryItem[]>([]);
 
-  // Lista de nomes: carrega assim que a página abre.
-  useEffect(() => {
-    game
-      .loadNames(BASE)
-      .then(({ entries, updatedAt }) => {
-        const m = new FuzzyMatcher(entries);
-        matcherRef.current = m;
-        scannerRef.current?.setMatcher(m);
-        const date = updatedAt ? new Date(updatedAt).toLocaleDateString('pt-BR') : '?';
-        setNamesStatus(`${m.size.toLocaleString('pt-BR')} nomes (atualizado em ${date})`);
-      })
-      .catch((e: Error) => setNamesStatus(`indisponível — ${e.message}`));
+  // Índice de cartas/preços + cotação: carrega assim que a página abre.
+  const loadData = useCallback(async (force: boolean) => {
+    setUpdating(true);
+    try {
+      const { index, warning } = await loadCardIndex(game, BASE, force);
+      const m = new FuzzyMatcher(index.entries);
+      matcherRef.current = m;
+      scannerRef.current?.setMatcher(m);
+      setPrices(index.prices);
+      setDataWarning(warning ?? null);
+      const date = new Date(index.pricesUpdatedAt).toLocaleDateString('pt-BR');
+      setDataStatus(`${index.prices.size.toLocaleString('pt-BR')} cartas · preços de ${date}`);
+      setRate(await getUsdBrl({ usdBrl: index.usdBrl, at: index.builtAt }, force));
+    } catch (e) {
+      setDataStatus('indisponível');
+      setDataWarning((e as Error).message);
+    } finally {
+      setUpdating(false);
+    }
   }, []);
+
+  useEffect(() => {
+    void loadData(false);
+  }, [loadData]);
 
   const getZoneRect = useCallback(() => {
     const video = videoRef.current;
@@ -98,7 +139,7 @@ export function App() {
 
     const name = r.confirmed ? r.match?.cardName : undefined;
     if (name) {
-      setHistory((h) => (h[0]?.name === name ? h : [{ name, at: Date.now() }, ...h].slice(0, 30)));
+      setHistory((h) => (h[0]?.name === name ? h : [{ name, at: Date.now() }, ...h].slice(0, 50)));
     }
   }, []);
 
@@ -184,7 +225,7 @@ export function App() {
     <div className="app">
       <header className="topbar">
         <strong>Bulk Scanner</strong>
-        <span className="tag">protótipo OCR</span>
+        <span className="tag">beta</span>
         <div className="spacer" />
         {cameras.length > 1 && (
           <select value={deviceId} onChange={(e) => changeCamera(e.target.value)} aria-label="Câmera">
@@ -235,7 +276,25 @@ export function App() {
         <div className={`result ${status}`}>
           {read?.match ? read.match.cardName : read ? '—' : ' '}
         </div>
+        {read?.match && <PriceLine info={prices.get(read.match.cardName)} rate={rate} />}
 
+        <details>
+          <summary>Cartas confirmadas ({history.length})</summary>
+          <ol className="history">
+            {history.map((h) => {
+              const p = prices.get(h.name);
+              return (
+                <li key={h.at}>
+                  {h.name} <span className="muted">— até {formatPrice(p?.maxUsd ?? null, rate)}</span>
+                </li>
+              );
+            })}
+          </ol>
+          {history.length > 0 && <button onClick={() => setHistory([])}>Limpar lista</button>}
+        </details>
+
+        <details>
+          <summary>Ajustes e diagnóstico</summary>
         <div className="metrics">
           <span>OCR leu: <code>{read?.rawText || '…'}</code></span>
           <span>
@@ -266,18 +325,17 @@ export function App() {
           </label>
         </div>
 
-        <details>
-          <summary>Cartas confirmadas ({history.length})</summary>
-          <ol className="history">
-            {history.map((h) => (
-              <li key={h.at}>{h.name}</li>
-            ))}
-          </ol>
-          {history.length > 0 && <button onClick={() => setHistory([])}>Limpar lista</button>}
         </details>
 
+        {dataWarning && <div className="error">{dataWarning}</div>}
         <footer className="status">
-          OCR: {ocrStatus} · Nomes: {namesStatus}
+          <span>
+            Preços: {dataStatus}
+            {rate && ` · US$ 1 = ${formatPrice(1, rate)} (${rate.source})`} · OCR: {ocrStatus}
+          </span>
+          <button className="small" onClick={() => loadData(true)} disabled={updating}>
+            {updating ? 'Atualizando…' : 'Atualizar preços'}
+          </button>
         </footer>
       </section>
     </div>

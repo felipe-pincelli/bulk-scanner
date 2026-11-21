@@ -4,9 +4,9 @@ App web para caçar cartas valiosas no meio do bulk de Magic: The Gathering.
 Você aponta a câmera, passa as cartas uma após a outra e o app avisa quando aparece
 uma carta cara.
 
-> **Status:** Etapa 1, o protótipo de OCR. O app lê o nome da carta pela câmera e
-> corrige erros de leitura usando a lista oficial de nomes. Preços e alertas vêm nas
-> próximas etapas.
+> **Status:** Etapa 2. O app lê o nome da carta pela câmera, corrige erros de
+> leitura usando a lista oficial de nomes e mostra a faixa de preço em reais.
+> Alertas e lista da sessão vêm nas próximas etapas.
 
 ## Como usar (sem instalar nada)
 
@@ -51,6 +51,27 @@ endereços `https://`, e o GitHub Pages já fornece isso.
 fica salva.
 **No iPhone:** o app usa a câmera traseira.
 
+## Preços
+
+- **Fonte:** Scryfall, com os preços do TCGplayer em dólar. Para cada nome de carta,
+  o app guarda o preço da impressão **mais barata** e da **mais cara** (incluindo
+  foil), além da edição da mais cara.
+- **Conversão para reais:** cotação do dia pela Frankfurter (Banco Central Europeu),
+  com a ExchangeRate-API de reserva. Fica guardada por 12h. O valor aparece no rodapé.
+- **Atualização:** o GitHub gera um índice novo todo dia (às 09:17 UTC) a partir dos
+  dados do Scryfall. O app baixa esse índice (~2 MB) e guarda no aparelho
+  (IndexedDB), então funciona offline. Ele procura uma versão nova a cada 12h,
+  ou na hora pelo botão **Atualizar preços**.
+- **Atenção:** a faixa é do NOME da carta, não da sua cópia. Uma comum com uma
+  versão promo cara vai mostrar um máximo alto. Por isso aparece a edição da mais
+  cara e o preço máximo sem foil.
+
+Para gerar o índice localmente (opcional):
+
+```bash
+npm run data
+```
+
 ## Rodar no seu computador (opcional, para desenvolvimento)
 
 Precisa do [Node.js](https://nodejs.org) versão 22 ou superior (instalador "LTS").
@@ -68,8 +89,9 @@ npm run data
 npm run dev
 ```
 
-Depois abra http://localhost:5173 no navegador. O `npm run data` baixa a lista
-de nomes do Scryfall e só precisa ser rodado de vez em quando.
+Depois abra http://localhost:5173 no navegador. O `npm run data` baixa os dados do
+Scryfall (~500 MB, leva 1–2 minutos) e gera `public/data/magic-index.json`. Só
+precisa ser rodado de vez em quando.
 
 > No iPhone, o endereço local (`http://192.168...`) **não** libera a câmera, porque
 > não é https. Para testar no iPhone, use o link do GitHub Pages.
@@ -78,7 +100,7 @@ de nomes do Scryfall e só precisa ser rodado de vez em quando.
 
 ```
 scripts/            scripts que rodam fora do navegador
-  build-data.ts       baixa dados do Scryfall → public/data/
+  build-data.ts       baixa dados do Scryfall → índice enxuto em public/data/
   copy-tesseract.ts   copia o motor de OCR → public/tesseract/
 .github/workflows/  publicação automática (GitHub Actions → GitHub Pages)
 src/core/           TODA a lógica, sem interface (reaproveitável no Capacitor)
@@ -86,6 +108,8 @@ src/core/           TODA a lógica, sem interface (reaproveitável no Capacitor)
   ocr/                contrato do OCR, Tesseract.js e pré-processamento da imagem
   matching/           corretor de nomes (busca aproximada)
   games/              um "provider" por jogo (hoje só magic/)
+  prices/             índice de preços (IndexedDB) e cotação do dólar
+  storage/            acesso ao IndexedDB
   scanner/            laço de leitura contínua
 src/ui/             interface (React)
 ```
