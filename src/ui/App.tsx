@@ -16,6 +16,7 @@ import { keepScreenOn } from '../core/platform/wakeLock';
 import { loadPref, savePref } from '../core/settings/settings';
 import { addEntry, loadSession, newSession, removeEntry, saveSession, type Session } from '../core/session/session';
 import { SessionSummaryView } from './SessionSummary';
+import { UpdateBanner } from './UpdateBanner';
 
 /**
  * Etapa 3: leitura contínua + preço em R$ + alertas (som + flash) com cooldown.
@@ -371,6 +372,7 @@ export function App() {
         )}
       </div>
 
+      <UpdateBanner />
       {showSummary && (
         <SessionSummaryView
           session={session}

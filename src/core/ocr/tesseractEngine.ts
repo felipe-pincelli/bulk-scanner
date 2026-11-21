@@ -40,6 +40,9 @@ export class TesseractEngine implements OcrEngine {
           workerPath: `${this.assetsUrl}worker.min.js`,
           corePath: this.assetsUrl,
           langPath: this.assetsUrl,
+          // Carrega o worker pelo endereço normal (e não como "blob"), para o
+          // service worker conseguir entregá-lo do cache quando estiver offline.
+          workerBlobURL: false,
           logger: (m) => this.progress?.(`${m.status} ${Math.round((m.progress ?? 0) * 100)}%`),
         });
         await worker.setParameters({
