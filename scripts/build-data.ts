@@ -2,8 +2,8 @@
  * Gera os dados que o app usa e grava em public/data/.
  * Roda no GitHub Actions a cada deploy e uma vez por dia.
  *
- * 1. Baixa o "Default Cards" do Scryfall (~500 MB: todas as impressões de todas as
- *    cartas, com preços) e gera um ÍNDICE ENXUTO: uma linha por nome de carta com
+ * 1. Baixa o "Default Cards" do Scryfall (~80 MB compactado: todas as impressões de
+ *    todas as cartas, com preços) e gera um ÍNDICE ENXUTO: uma linha por nome de carta com
  *    o menor e o maior preço entre as impressões (com e sem foil).
  * 2. Busca a cotação USD → BRL (fica de reserva caso o app não consiga buscar ao vivo).
  *
@@ -15,6 +15,7 @@
  */
 import { createReadStream, mkdirSync, writeFileSync } from 'node:fs';
 import { Readable } from 'node:stream';
+import { createGunzip } from 'node:zlib';
 
 const HEADERS = {
   'User-Agent': 'BulkScanner/0.2 (personal project)',
@@ -47,8 +48,9 @@ interface ScryfallCard {
 const SKIP_LAYOUTS = new Set(['art_series', 'token', 'double_faced_token', 'emblem', 'vanguard', 'scheme', 'planar']);
 
 /**
- * Lê um arquivo JSON gigante (uma lista de cartas) aos pedaços, sem carregar tudo
- * na memória: devolve cada objeto da lista assim que ele termina de chegar.
+ * Lê um arquivo gigante de cartas aos pedaços, sem carregar tudo na memória:
+ * devolve cada carta assim que ela termina de chegar. Aceita os dois formatos do
+ * Scryfall: uma lista JSON ("[{...},{...}]") ou JSON Lines (uma carta por linha).
  */
 async function* streamJsonArray(chunks: AsyncIterable<Uint8Array | string>): AsyncGenerator<string> {
   const decoder = new TextDecoder();
@@ -57,6 +59,7 @@ async function* streamJsonArray(chunks: AsyncIterable<Uint8Array | string>): Asy
   let escape = false;
   let buf = '';
   let start = -1;
+  let startDepth = 0;
   for await (const chunk of chunks) {
     const text = typeof chunk === 'string' ? chunk : decoder.decode(chunk, { stream: true });
     buf += text;
@@ -69,11 +72,15 @@ async function* streamJsonArray(chunks: AsyncIterable<Uint8Array | string>): Asy
         else if (c === 34 /* " */) inString = false;
       } else if (c === 34) inString = true;
       else if (c === 123 /* { */) {
-        if (depth === 1) start = i;
+        // Carta = objeto no nível de cima (JSON Lines) ou dentro da lista.
+        if (start < 0 && depth <= 1) {
+          start = i;
+          startDepth = depth;
+        }
         depth++;
       } else if (c === 125 /* } */) {
         depth--;
-        if (depth === 1 && start >= 0) {
+        if (start >= 0 && depth === startDepth) {
           yield buf.slice(start, i + 1);
           start = -1;
         }
@@ -97,31 +104,36 @@ async function getJson<T>(url: string): Promise<T> {
 async function openCards(): Promise<{ chunks: AsyncIterable<Uint8Array | string>; updatedAt: string }> {
   const fileArg = process.argv.indexOf('--file');
   if (fileArg > 0) {
-    return { chunks: createReadStream(process.argv[fileArg + 1], 'utf8'), updatedAt: new Date().toISOString() };
+    const path = process.argv[fileArg + 1];
+    const stream = createReadStream(path);
+    return { chunks: path.endsWith('.gz') ? stream.pipe(createGunzip()) : stream, updatedAt: new Date().toISOString() };
   }
-  type BulkItem = { type: string; download_uri: string; updated_at: string; size: number };
+  type BulkItem = { type: string; updated_at: string };
   const list = await getJson<{ data: BulkItem[] }>('https://api.scryfall.com/bulk-data');
   const meta = list.data.find((item) => item.type === 'default_cards');
   if (!meta) throw new Error(`"default_cards" não encontrado em /bulk-data (${list.data.map((i) => i.type).join(', ')})`);
   // O link do arquivo pode vir na lista ou só nos detalhes do item, e o nome do
   // campo já variou entre versões da API. Procura nos dois lugares.
-  console.log('Item do Scryfall:', JSON.stringify(meta).slice(0, 600));
   const findUrl = (obj: Record<string, unknown>) =>
-    [obj.download_uri, obj.download_url, obj.file_uri, obj.file_url].find(
+    [obj.jsonl_download_uri, obj.download_uri, obj.download_url].find(
       (v): v is string => typeof v === 'string' && v.startsWith('http'),
     );
   let url = findUrl(meta as unknown as Record<string, unknown>);
   const detailUri = (meta as unknown as { uri?: string }).uri;
   if (!url && detailUri) {
     const detail = await getJson<Record<string, unknown>>(detailUri);
-    console.log('Detalhes:', JSON.stringify(detail).slice(0, 600));
     url = findUrl(detail);
   }
-  if (!url) throw new Error('Link de download não encontrado (veja o log acima).');
-  console.log(`Baixando ${url} (${meta.size ? Math.round(meta.size / 1e6) + ' MB' : 'tamanho desconhecido'})…`);
+  if (!url) throw new Error(`Link de download não encontrado: ${JSON.stringify(meta)}`);
+  console.log(`Baixando ${url} …`);
   const res = await fetch(url, { headers: HEADERS });
-  if (!res.ok || !res.body) throw new Error(`Download falhou: HTTP ${res.status}`);
-  return { chunks: Readable.fromWeb(res.body as never), updatedAt: meta.updated_at };
+  if (!res.ok) throw new Error(`Download falhou: HTTP ${res.status}`);
+  const file = Buffer.from(await res.arrayBuffer());
+  // Arquivo .gz (compactado)? Os dois primeiros bytes de um gzip são 1f 8b.
+  const gzipped = file[0] === 0x1f && file[1] === 0x8b;
+  console.log(`Baixado: ${Math.round(file.length / 1e6)} MB${gzipped ? ' (compactado)' : ''}`);
+  const stream = Readable.from([file]);
+  return { chunks: gzipped ? stream.pipe(createGunzip()) : stream, updatedAt: meta.updated_at };
 }
 
 async function fetchUsdBrl(): Promise<number | null> {
