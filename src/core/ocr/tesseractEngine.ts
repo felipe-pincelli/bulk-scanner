@@ -1,21 +1,27 @@
 import { createWorker, OEM, PSM, type Worker } from 'tesseract.js';
 import type { OcrEngine, OcrLine } from './ocrEngine';
+import type { LineHint } from './preprocess';
 
 /**
  * OCR com Tesseract.js rodando em "workers" (processos separados do navegador),
  * para a tela continuar fluida enquanto lê.
  *
- * Usamos DOIS leitores em paralelo, cada um com um jeito diferente de separar as
- * linhas da imagem. Nos testes, cada modo sozinho falhava em casos diferentes
- * (por causa da arte logo abaixo do nome); juntos acertaram todos. Como rodam ao
- * mesmo tempo em núcleos diferentes do processador, o tempo quase não aumenta.
+ * Usamos TRÊS leitores em paralelo:
+ * - dois leem a faixa inteira, cada um com um jeito diferente de separar as
+ *   linhas (cada modo sozinho falhava em casos diferentes, por causa da arte);
+ * - um lê só a linha que o app acha que é o nome ("dica"), no modo "uma linha" —
+ *   é ele que pega nomes curtos como "Moat" ou "Opt", que os outros descartam.
+ * Como rodam ao mesmo tempo em núcleos diferentes do processador, o tempo quase
+ * não aumenta.
  *
  * Os arquivos do motor ficam em public/tesseract (sem depender de CDN).
  */
 const MODES = [
   PSM.SINGLE_COLUMN, // "coluna única": rápido, ótimo quando há espaço vazio em volta
   PSM.SINGLE_BLOCK, //  "bloco": melhor quando o nome está colado na arte
+  PSM.SINGLE_LINE, //   "uma linha": só a faixa da dica (nomes curtos)
 ];
+const LINE_WORKER = 2;
 
 export class TesseractEngine implements OcrEngine {
   private workers: Worker[] = [];
@@ -49,20 +55,32 @@ export class TesseractEngine implements OcrEngine {
     this.progress = undefined;
   }
 
-  async readLines(image: HTMLCanvasElement): Promise<OcrLine[]> {
+  async readLines(image: HTMLCanvasElement, lineHint?: LineHint | null): Promise<OcrLine[]> {
     if (!this.workers.length) throw new Error('OCR não inicializado');
-    const results = await Promise.all(this.workers.map((w) => w.recognize(image, {}, { text: true, blocks: true })));
+    const jobs = this.workers.map((w, i) => {
+      if (i !== LINE_WORKER) return w.recognize(image, {}, { text: true, blocks: true });
+      if (!lineHint) return null;
+      const rectangle = { left: lineHint.left, top: lineHint.top, width: lineHint.width, height: lineHint.height };
+      return w.recognize(image, { rectangle }, { text: true, blocks: true });
+    });
+    const results = await Promise.all(jobs);
     const lines: OcrLine[] = [];
     const seen = new Set<string>();
-    for (const { data } of results) {
+    // A leitura da dica vem primeiro: em caso de texto repetido, fica marcada como dela.
+    const order = [LINE_WORKER, ...results.keys()].filter((i, pos, arr) => arr.indexOf(i) === pos);
+    for (const i of order) {
+      const result = results[i];
+      if (!result) continue;
+      const { data } = result;
+      const fromHint = i === LINE_WORKER;
       const found: OcrLine[] = [];
       for (const block of data.blocks ?? []) {
         for (const para of block.paragraphs) {
-          for (const line of para.lines) found.push({ text: line.text.trim(), confidence: line.confidence });
+          for (const line of para.lines) found.push({ text: line.text.trim(), confidence: line.confidence, fromHint });
         }
       }
       if (!found.length) {
-        for (const text of data.text.split('\n')) found.push({ text: text.trim(), confidence: data.confidence });
+        for (const text of data.text.split('\n')) found.push({ text: text.trim(), confidence: data.confidence, fromHint });
       }
       for (const line of found) {
         if (line.text && !seen.has(line.text)) {

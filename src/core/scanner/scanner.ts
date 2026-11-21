@@ -1,8 +1,8 @@
 import { subRect, type Rect } from '../camera/geometry';
 import type { GameProvider } from '../games/types';
-import type { FuzzyMatcher, MatchResult } from '../matching/fuzzyMatcher';
+import { normalize, type FuzzyMatcher, type MatchResult } from '../matching/fuzzyMatcher';
 import type { OcrEngine, OcrLine } from '../ocr/ocrEngine';
-import { cropForOcr } from '../ocr/preprocess';
+import { cropForOcr, findTextRow } from '../ocr/preprocess';
 import { correctionDeg, ORIENTATIONS, rotateRegion, type Orientation } from './orientation';
 
 /**
@@ -45,6 +45,40 @@ export interface ScannerOptions {
   minScore?: number;
   readsToConfirm?: number;
   autoRotate?: boolean;
+}
+
+/** Nomes curtos (< 5 letras) exigem leitura confiante — são fáceis de "inventar". */
+const SHORT_NAME = 5;
+const SHORT_MIN_CONFIDENCE = 75;
+/** Na leitura "uma linha" da dica, o texto é mais confiável. */
+const SHORT_MIN_CONFIDENCE_HINT = 40;
+/** Nomes médios (5 a 7 letras) exigem semelhança maior: lixo parecido é comum. */
+const MEDIUM_NAME = 8;
+const MEDIUM_MIN_SCORE = 0.88;
+
+/**
+ * Escolhe o melhor nome entre as linhas lidas. Regras contra falsos positivos:
+ * - nome curto só vale se o OCR estava confiante naquela linha;
+ * - nome médio precisa de semelhança alta;
+ * - um nome longo bem reconhecido sempre ganha de um curto.
+ */
+function pickBest(lines: OcrLine[], matcher: FuzzyMatcher | null, minScore: number): MatchResult | null {
+  let bestLong: MatchResult | null = null;
+  let bestShort: MatchResult | null = null;
+  for (const line of lines) {
+    const m = matcher?.match(line.text) ?? null;
+    if (!m) continue;
+    const len = normalize(m.matchText).length;
+    if (len < SHORT_NAME) {
+      const minConf = line.fromHint ? SHORT_MIN_CONFIDENCE_HINT : SHORT_MIN_CONFIDENCE;
+      if (line.confidence >= minConf && (!bestShort || m.score > bestShort.score)) bestShort = m;
+      continue;
+    }
+    if (len < MEDIUM_NAME && m.score < MEDIUM_MIN_SCORE) continue;
+    if (!bestLong || m.score > bestLong.score) bestLong = m;
+  }
+  if (bestLong && bestLong.score >= minScore) return bestLong;
+  return bestShort ?? bestLong;
 }
 
 /** Altura desejada (px) da faixa do nome depois de redimensionar. */
@@ -109,13 +143,11 @@ export class Scanner {
           const scale = Math.min(2, NAME_BAND_PX / (game.nameRegion.h * zone.h));
           crop = cropForOcr(video, band, this.canvas, { rotateDeg: correctionDeg(o), scale });
           const t0 = performance.now();
-          lines = await this.opts.engine.readLines(crop);
+          // Altura aproximada das letras no recorte (~45% da faixa do nome).
+          const hint = findTextRow(crop, NAME_BAND_PX * 0.45);
+          lines = await this.opts.engine.readLines(crop, hint);
           const t1 = performance.now();
-          best = null;
-          for (const line of lines) {
-            const m = this.opts.matcher?.match(line.text) ?? null;
-            if (m && (!best || m.score > best.score)) best = m;
-          }
+          best = pickBest(lines, this.opts.matcher, minScore);
           ocrMs += t1 - t0;
           matchMs += performance.now() - t1;
           orientation = o;

@@ -9,33 +9,44 @@ import { formatPrice, getUsdBrl, type Rate } from '../core/prices/currency';
 import { TesseractEngine } from '../core/ocr/tesseractEngine';
 import { orientationLabel, rotateRegion } from '../core/scanner/orientation';
 import { Scanner, type ScanRead } from '../core/scanner/scanner';
+import { evaluateAlert, type AlertBasis, type AlertLevel, type AlertSettings } from '../core/alerts/alertRules';
+import { CardPresence } from '../core/alerts/cardPresence';
+import { createWebFeedback } from '../core/platform/feedback';
+import { keepScreenOn } from '../core/platform/wakeLock';
+import { loadPref, savePref } from '../core/settings/settings';
 
 /**
- * Etapa 2: câmera + OCR do nome + correção pela lista de nomes + preço em R$.
- * Os números de diagnóstico ficam em "Ajustes e diagnóstico".
+ * Etapa 3: leitura contínua + preço em R$ + alertas (som + flash) com cooldown.
+ * Toda a lógica fica em src/core; aqui é só a tela.
  */
 
 const BASE = import.meta.env.BASE_URL;
 const game = defaultGame;
-
-function loadPref(key: string, fallback: string) {
-  try {
-    return localStorage.getItem(key) ?? fallback;
-  } catch {
-    return fallback;
-  }
-}
-function savePref(key: string, value: string) {
-  try {
-    localStorage.setItem(key, value);
-  } catch {
-    /* sem armazenamento: ignora */
-  }
-}
+const feedback = createWebFeedback();
 
 interface HistoryItem {
   name: string;
   at: number;
+  level: AlertLevel;
+  valueBrl: number | null;
+}
+
+const levelLabel: Record<AlertLevel, string> = {
+  red: 'MUITO ACIMA DO MÍNIMO',
+  yellow: 'ACIMA DO MÍNIMO',
+  check: 'confira a edição',
+  none: '',
+};
+
+const brl = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+
+function loadAlertSettings(): AlertSettings {
+  return {
+    minBrl: Number(loadPref('minBrl', '10')) || 10,
+    basis: (loadPref('alertBasis', 'safe') as AlertBasis) === 'max' ? 'max' : 'safe',
+    includeFoil: loadPref('includeFoil', '1') === '1',
+    checkCue: loadPref('checkCue', '1') === '1',
+  };
 }
 
 const finishLabel: Record<PriceInfo['maxFinish'], string> = {
@@ -70,6 +81,11 @@ export function App() {
   const scannerRef = useRef<Scanner | null>(null);
   const matcherRef = useRef<FuzzyMatcher | null>(null);
   const timesRef = useRef<number[]>([]);
+  const presenceRef = useRef(new CardPresence());
+  const releaseWakeRef = useRef<(() => void) | null>(null);
+  const pricesRef = useRef<Map<string, PriceInfo>>(new Map());
+  const rateRef = useRef<Rate | null>(null);
+  const alertRef = useRef<AlertSettings>(loadAlertSettings());
 
   const [running, setRunning] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -87,6 +103,19 @@ export function App() {
   const [read, setRead] = useState<ScanRead | null>(null);
   const [readsPerSec, setReadsPerSec] = useState(0);
   const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [alertSettings, setAlertSettings] = useState<AlertSettings>(alertRef.current);
+  const [minInput, setMinInput] = useState(String(alertRef.current.minBrl));
+  const [soundOn, setSoundOn] = useState(() => loadPref('sound', '1') === '1');
+  const [flash, setFlash] = useState<{ level: AlertLevel; id: number } | null>(null);
+  const [wakeInfo, setWakeInfo] = useState<string>('');
+
+  useEffect(() => feedback.setSoundEnabled(soundOn), [soundOn]);
+  useEffect(() => {
+    pricesRef.current = prices;
+  }, [prices]);
+  useEffect(() => {
+    rateRef.current = rate;
+  }, [rate]);
 
   // Índice de cartas/preços + cotação: carrega assim que a página abre.
   const loadData = useCallback(async (force: boolean) => {
@@ -137,16 +166,57 @@ export function App() {
     if (times.length > 10) times.shift();
     if (times.length > 1) setReadsPerSec(((times.length - 1) * 1000) / (now - times[0]));
 
-    const name = r.confirmed ? r.match?.cardName : undefined;
-    if (name) {
-      setHistory((h) => (h[0]?.name === name ? h : [{ name, at: Date.now() }, ...h].slice(0, 50)));
+    // Carta nova na frente da câmera? (cooldown: a mesma carta só alerta uma vez)
+    const appeared = presenceRef.current.update(r.match?.cardName ?? null, r.confirmed);
+    if (appeared) {
+      const decision = evaluateAlert(pricesRef.current.get(appeared), rateRef.current?.usdBrl ?? null, alertRef.current);
+      if (decision.level !== 'none') {
+        feedback.alert(decision.level);
+        setFlash({ level: decision.level, id: performance.now() });
+      }
+      setHistory((h) => [{ name: appeared, at: Date.now(), ...decision }, ...h].slice(0, 200));
     }
   }, []);
 
+  function updateAlertSettings(patch: Partial<AlertSettings>) {
+    const next = { ...alertRef.current, ...patch };
+    alertRef.current = next;
+    setAlertSettings(next);
+    savePref('minBrl', String(next.minBrl));
+    savePref('alertBasis', next.basis);
+    savePref('includeFoil', next.includeFoil ? '1' : '0');
+    savePref('checkCue', next.checkCue ? '1' : '0');
+  }
+
+  function changeMin(text: string) {
+    setMinInput(text);
+    const value = Number(text.replace(',', '.'));
+    if (value > 0) updateAlertSettings({ minBrl: value });
+  }
+
+  function changeSound(on: boolean) {
+    setSoundOn(on);
+    savePref('sound', on ? '1' : '0');
+  }
+
+  async function testAlert(level: AlertLevel) {
+    await feedback.unlock();
+    feedback.alert(level);
+    setFlash({ level, id: performance.now() });
+  }
+
   async function start(chosenId = deviceId) {
+    // Precisa ser a PRIMEIRA coisa do toque: o iPhone só libera o som assim.
+    const unlocking = feedback.unlock().catch(() => {});
     setBusy(true);
     setError(null);
     try {
+      await unlocking;
+      if (!releaseWakeRef.current) {
+        const wake = await keepScreenOn();
+        releaseWakeRef.current = wake.release;
+        setWakeInfo(wake.supported ? 'tela ligada' : 'este navegador não mantém a tela ligada');
+      }
       const video = videoRef.current!;
       stopCamera(streamRef.current);
       const cameraPromise = startCamera(video, chosenId || undefined);
@@ -192,6 +262,10 @@ export function App() {
     scannerRef.current?.stop();
     stopCamera(streamRef.current);
     streamRef.current = null;
+    releaseWakeRef.current?.();
+    releaseWakeRef.current = null;
+    presenceRef.current.reset();
+    setWakeInfo('');
     setRunning(false);
   }
 
@@ -220,6 +294,8 @@ export function App() {
       ? 'confirmed'
       : 'tentative'
     : 'none';
+  const current = read?.match ? evaluateAlert(prices.get(read.match.cardName), rate?.usdBrl ?? null, alertSettings) : null;
+  const alertCount = history.filter((h) => h.level === 'yellow' || h.level === 'red').length;
 
   return (
     <div className="app">
@@ -240,7 +316,7 @@ export function App() {
           <button onClick={stop}>Parar</button>
         ) : (
           <button className="primary" onClick={() => start()} disabled={busy}>
-            {busy ? 'Iniciando…' : 'Iniciar'}
+            {busy ? 'Iniciando…' : 'Iniciar sessão'}
           </button>
         )}
       </header>
@@ -265,32 +341,109 @@ export function App() {
         </div>
         {!running && !busy && (
           <div className="hint">
-            Toque em <b>Iniciar</b> e coloque a carta dentro do quadrado — em pé ou deitada.
+            Toque em <b>Iniciar sessão</b> (libera o som) e coloque a carta dentro do quadrado — em pé ou
+            deitada.
           </div>
         )}
       </div>
+
+      {flash && <div key={flash.id} className={`flash ${flash.level}`} onAnimationEnd={() => setFlash(null)} />}
 
       <section className="panel">
         {error && <div className="error">{error}</div>}
 
         <div className={`result ${status}`}>
           {read?.match ? read.match.cardName : read ? '—' : ' '}
+          {current && current.level !== 'none' && (
+            <span className={`badge ${current.level}`}>{levelLabel[current.level]}</span>
+          )}
         </div>
         {read?.match && <PriceLine info={prices.get(read.match.cardName)} rate={rate} />}
 
+        <label className="min-row">
+          Alertar a partir de
+          <span className="money">
+            R$
+            <input
+              type="number"
+              inputMode="decimal"
+              min={0}
+              step={1}
+              value={minInput}
+              onChange={(e) => changeMin(e.target.value)}
+            />
+          </span>
+          <span className="muted">vermelho a partir de {brl.format(alertSettings.minBrl * 5)}</span>
+        </label>
+
         <details>
-          <summary>Cartas confirmadas ({history.length})</summary>
+          <summary>
+            Cartas da sessão ({history.length}
+            {alertCount > 0 && `, ${alertCount} com alerta`})
+          </summary>
           <ol className="history">
             {history.map((h) => {
               const p = prices.get(h.name);
               return (
-                <li key={h.at}>
-                  {h.name} <span className="muted">— até {formatPrice(p?.maxUsd ?? null, rate)}</span>
+                <li key={h.at} className={h.level}>
+                  {h.name}{' '}
+                  <span className="muted">
+                    — {formatPrice(p?.minUsd ?? null, rate)} a {formatPrice(p?.maxUsd ?? null, rate)}
+                  </span>
                 </li>
               );
             })}
           </ol>
           {history.length > 0 && <button onClick={() => setHistory([])}>Limpar lista</button>}
+        </details>
+
+        <details>
+          <summary>Alertas</summary>
+          <div className="settings">
+            <label>
+              Critério
+              <select
+                value={alertSettings.basis}
+                onChange={(e) => updateAlertSettings({ basis: e.target.value as AlertBasis })}
+              >
+                <option value="safe">Seguro: a versão mais barata já vale o mínimo</option>
+                <option value="max">Qualquer edição: alguma versão vale o mínimo</option>
+              </select>
+            </label>
+            <p className="muted">
+              {alertSettings.basis === 'safe'
+                ? 'Alerta só quando QUALQUER cópia da carta vale o mínimo. Se só uma edição específica vale, mostra o aviso azul "confira a edição".'
+                : 'Alerta quando ALGUMA impressão vale o mínimo — dispara bem mais, inclusive para cartas baratas que têm um promo caro.'}
+            </p>
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={alertSettings.includeFoil}
+                onChange={(e) => updateAlertSettings({ includeFoil: e.target.checked })}
+              />
+              Considerar versões foil no preço máximo
+            </label>
+            {alertSettings.basis === 'safe' && (
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={alertSettings.checkCue}
+                  onChange={(e) => updateAlertSettings({ checkCue: e.target.checked })}
+                />
+                Aviso azul "confira a edição"
+              </label>
+            )}
+            <label className="check">
+              <input type="checkbox" checked={soundOn} onChange={(e) => changeSound(e.target.checked)} />
+              Som
+            </label>
+            <div className="row">
+              Testar:
+              <button className="small" onClick={() => testAlert('check')}>Azul</button>
+              <button className="small" onClick={() => testAlert('yellow')}>Amarelo</button>
+              <button className="small" onClick={() => testAlert('red')}>Vermelho</button>
+            </div>
+          </div>
         </details>
 
         <details>
@@ -332,6 +485,7 @@ export function App() {
           <span>
             Preços: {dataStatus}
             {rate && ` · US$ 1 = ${formatPrice(1, rate)} (${rate.source})`} · OCR: {ocrStatus}
+            {wakeInfo && ` · ${wakeInfo}`}
           </span>
           <button className="small" onClick={() => loadData(true)} disabled={updating}>
             {updating ? 'Atualizando…' : 'Atualizar preços'}

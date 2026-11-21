@@ -58,3 +58,89 @@ export function cropForOcr(
   ctx.putImageData(img, PAD, PAD);
   return out;
 }
+
+/**
+ * Procura, no recorte já preparado, a faixa horizontal que mais parece uma linha
+ * de texto escuro sobre fundo claro (o nome da carta). Serve de "dica" para um
+ * leitor especializado em uma linha só — que lê nomes curtos ("Moat", "Opt")
+ * que os outros modos às vezes descartam como sujeira.
+ *
+ * Como: para cada linha de pixels, conta as bordas fortes (mudança brusca de
+ * claro para escuro) em que o lado claro é bem claro. Soma isso numa janela da
+ * altura das letras e pega a janela com mais pontos.
+ */
+export interface LineHint {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+export function findTextRow(canvas: HTMLCanvasElement, textPx: number): LineHint | null {
+  const { width: w, height: h } = canvas;
+  if (h < textPx * 1.5) return null;
+  const px = canvas.getContext('2d', { willReadFrequently: true })!.getImageData(0, 0, w, h).data;
+  const rowScore = new Float32Array(h);
+  for (let y = 0; y < h; y++) {
+    let score = 0;
+    let prev = px[y * w * 4];
+    for (let x = 1; x < w; x++) {
+      const v = px[(y * w + x) * 4];
+      const diff = v - prev;
+      if ((diff > 60 || diff < -60) && Math.max(v, prev) > 170) score++;
+      prev = v;
+    }
+    rowScore[y] = score;
+  }
+  const win = Math.max(4, Math.round(textPx));
+  let sum = 0;
+  for (let y = 0; y < win; y++) sum += rowScore[y];
+  let best = sum;
+  let bestY = 0;
+  for (let y = win; y < h; y++) {
+    sum += rowScore[y] - rowScore[y - win];
+    if (sum > best) {
+      best = sum;
+      bestY = y - win + 1;
+    }
+  }
+  if (best < win * 2) return null; // quase nenhuma borda: não há texto
+  // Faixa um pouco maior que as letras (pega acentos e partes de baixo).
+  const height = Math.min(h, Math.round(textPx * 2.2));
+  const top = Math.max(0, Math.min(h - height, Math.round(bestY + win / 2 - height / 2)));
+
+  // Na horizontal: fica só com o trecho CLARO da faixa (a barra do nome).
+  // Bordas pretas da carta dos lados fazem o Tesseract achar que é texto branco
+  // em fundo preto e ler lixo — principalmente em nomes curtos.
+  const colBright = new Uint8Array(w);
+  for (let x = 0; x < w; x++) {
+    let bright = 0;
+    for (let y = top; y < top + height; y++) if (px[(y * w + x) * 4] > 150) bright++;
+    colBright[x] = bright > height * 0.5 ? 1 : 0;
+  }
+  // Maior sequência de colunas claras (tolerando buracos pequenos = letras grossas).
+  const gapTolerance = Math.round(textPx * 1.5);
+  let bestStart = 0;
+  let bestLen = 0;
+  for (let x = 0; x < w; ) {
+    if (!colBright[x]) {
+      x++;
+      continue;
+    }
+    const start = x;
+    let end = x;
+    let gap = 0;
+    for (; x < w && gap <= gapTolerance; x++) {
+      if (colBright[x]) {
+        end = x;
+        gap = 0;
+      } else gap++;
+    }
+    if (end - start + 1 > bestLen) {
+      bestLen = end - start + 1;
+      bestStart = start;
+    }
+  }
+  if (bestLen < textPx * 4) return { left: 0, top, width: w, height }; // barra escura: usa tudo
+  return { left: bestStart, top, width: bestLen, height };
+}

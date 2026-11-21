@@ -4,9 +4,9 @@ App web para caçar cartas valiosas no meio do bulk de Magic: The Gathering.
 Você aponta a câmera, passa as cartas uma após a outra e o app avisa quando aparece
 uma carta cara.
 
-> **Status:** Etapa 2. O app lê o nome da carta pela câmera, corrige erros de
-> leitura usando a lista oficial de nomes e mostra a faixa de preço em reais.
-> Alertas e lista da sessão vêm nas próximas etapas.
+> **Status:** Etapa 3. O app lê o nome da carta pela câmera, mostra a faixa de
+> preço em reais e avisa (som + flash na tela inteira) quando aparece uma carta que
+> vale mais que o seu mínimo. A lista final da sessão vem na Etapa 4.
 
 ## Como usar (sem instalar nada)
 
@@ -50,6 +50,32 @@ endereços `https://`, e o GitHub Pages já fornece isso.
 **No PC:** se houver mais de uma webcam, aparece um seletor no topo. A escolha
 fica salva.
 **No iPhone:** o app usa a câmera traseira.
+
+## Alertas
+
+1. Toque em **Iniciar sessão**. Esse toque também libera o som (exigência do iPhone)
+   e mantém a tela ligada enquanto a sessão estiver aberta.
+2. Defina **"Alertar a partir de R$"**. O valor fica salvo no aparelho.
+3. Quando uma carta reconhecida passa do mínimo:
+   - **Amarelo** (2 bipes): vale mais que o mínimo.
+   - **Vermelho** (4 bipes, pisca 2 vezes): vale mais que **5×** o mínimo.
+   - **Azul** (borda + bipe grave): "confira a edição". Só alguma edição específica
+     vale o mínimo (veja o critério abaixo).
+4. **Cooldown:** a mesma carta só alerta uma vez enquanto estiver na frente da
+   câmera. Se ela sair e voltar (ex.: outra cópia), alerta de novo.
+
+Em **Alertas** você escolhe:
+- **Critério "Seguro" (padrão):** alerta amarelo/vermelho só quando até a versão
+  **mais barata** da carta vale o mínimo, ou seja, qualquer cópia vale. Se só uma
+  edição cara vale (ex.: Lightning Bolt, que tem um promo de US$ 650), mostra o
+  aviso azul.
+- **Critério "Qualquer edição":** alerta quando a versão **mais cara** vale o
+  mínimo. Dispara bem mais.
+- Considerar foil no preço máximo, aviso azul, som, e botões para testar cada alerta.
+
+**Som no iPhone:** em iOS 16.4 ou mais recente, o som toca mesmo com a chave de
+silencioso ligada. Em versões antigas, desligue o modo silencioso. Confira o volume
+de mídia.
 
 ## Preços
 
@@ -109,6 +135,9 @@ src/core/           TODA a lógica, sem interface (reaproveitável no Capacitor)
   matching/           corretor de nomes (busca aproximada)
   games/              um "provider" por jogo (hoje só magic/)
   prices/             índice de preços (IndexedDB) e cotação do dólar
+  alerts/             regras de alerta (níveis, critério) e cooldown por carta
+  platform/           som, tela ligada e "feedback" (onde entrará a vibração via Capacitor)
+  settings/           preferências salvas no aparelho
   storage/            acesso ao IndexedDB
   scanner/            laço de leitura contínua
 src/ui/             interface (React)
@@ -120,6 +149,10 @@ src/ui/             interface (React)
   leituras por segundo), com dois leitores em paralelo usando modos diferentes de
   separar linhas. Cada modo sozinho falhava em casos diferentes; juntos são
   bem mais confiáveis.
+- **Nomes curtos** ("Moat", "Opt"): um terceiro leitor lê só a linha que o app
+  acha que é o nome, recortando as bordas pretas da carta, que confundiam o
+  Tesseract. Nomes curtos e médios exigem leitura mais confiável, para evitar
+  alarmes falsos.
 - **Orientação automática**: a cada leitura, testa primeiro a orientação que
   vinha funcionando. Só se não achar nada, testa mais uma das outras três.
 - **Corretor de nomes**: o OCR não precisa acertar todas as letras. O texto lido é

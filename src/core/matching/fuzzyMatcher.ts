@@ -68,7 +68,8 @@ export class FuzzyMatcher {
     const seen = new Set<string>();
     for (const entry of entries) {
       const key = normalize(entry.matchText);
-      if (!key || seen.has(key)) continue;
+      // Nomes com menos de 3 letras: quase não existem e viram falso positivo fácil.
+      if (key.length < 3 || seen.has(key)) continue;
       seen.add(key);
       const id = this.keys.length;
       this.keys.push(key);
@@ -117,7 +118,9 @@ export class FuzzyMatcher {
       // Nomes muito curtos ("Ice", "Opt") só valem se a linha for exatamente
       // o nome — senão qualquer pedaço de lixo viraria um falso positivo.
       if (key.length < 5) {
-        if (query === key && (!best || best.score < 1)) {
+        // Aceita sobras de 1 caractere em volta (ex.: "i ice" -> "ice").
+        const core = query.split(' ').filter((t) => t.length > 1).join(' ');
+        if ((query === key || core === key) && (!best || best.score < 1)) {
           best = { cardName: this.entries[id].cardName, matchText: this.entries[id].matchText, score: 1 };
         }
         continue;
