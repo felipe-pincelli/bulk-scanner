@@ -14,6 +14,8 @@ import { CardPresence } from '../core/alerts/cardPresence';
 import { createWebFeedback } from '../core/platform/feedback';
 import { keepScreenOn } from '../core/platform/wakeLock';
 import { loadPref, savePref } from '../core/settings/settings';
+import { addEntry, loadSession, newSession, removeEntry, saveSession, type Session } from '../core/session/session';
+import { SessionSummaryView } from './SessionSummary';
 
 /**
  * Etapa 3: leitura contínua + preço em R$ + alertas (som + flash) com cooldown.
@@ -23,13 +25,6 @@ import { loadPref, savePref } from '../core/settings/settings';
 const BASE = import.meta.env.BASE_URL;
 const game = defaultGame;
 const feedback = createWebFeedback();
-
-interface HistoryItem {
-  name: string;
-  at: number;
-  level: AlertLevel;
-  valueBrl: number | null;
-}
 
 const levelLabel: Record<AlertLevel, string> = {
   red: 'MUITO ACIMA DO MÍNIMO',
@@ -102,7 +97,9 @@ export function App() {
   const [autoRotate, setAutoRotate] = useState(() => loadPref('autoRotate', '1') === '1');
   const [read, setRead] = useState<ScanRead | null>(null);
   const [readsPerSec, setReadsPerSec] = useState(0);
-  const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [session, setSession] = useState<Session>(newSession);
+  const [showSummary, setShowSummary] = useState(false);
+  const sessionLoaded = useRef(false);
   const [alertSettings, setAlertSettings] = useState<AlertSettings>(alertRef.current);
   const [minInput, setMinInput] = useState(String(alertRef.current.minBrl));
   const [soundOn, setSoundOn] = useState(() => loadPref('sound', '1') === '1');
@@ -110,6 +107,16 @@ export function App() {
   const [wakeInfo, setWakeInfo] = useState<string>('');
 
   useEffect(() => feedback.setSoundEnabled(soundOn), [soundOn]);
+  // Sessão salva no aparelho: recupera ao abrir e salva a cada mudança.
+  useEffect(() => {
+    void loadSession().then((s) => {
+      setSession((cur) => (cur.entries.length ? cur : s));
+      sessionLoaded.current = true;
+    });
+  }, []);
+  useEffect(() => {
+    if (sessionLoaded.current) void saveSession(session);
+  }, [session]);
   useEffect(() => {
     pricesRef.current = prices;
   }, [prices]);
@@ -174,7 +181,9 @@ export function App() {
         feedback.alert(decision.level);
         setFlash({ level: decision.level, id: performance.now() });
       }
-      setHistory((h) => [{ name: appeared, at: Date.now(), ...decision }, ...h].slice(0, 200));
+      const price = pricesRef.current.get(appeared) ?? null;
+      const usdBrl = rateRef.current?.usdBrl ?? null;
+      setSession((s) => addEntry(s, { cardName: appeared, at: Date.now(), ...decision, price, usdBrl }));
     }
   }, []);
 
@@ -258,6 +267,17 @@ export function App() {
     }
   }
 
+  function finish() {
+    stop();
+    setShowSummary(true);
+  }
+
+  function startNewSession() {
+    setSession(newSession());
+    setShowSummary(false);
+    presenceRef.current.reset();
+  }
+
   function stop() {
     scannerRef.current?.stop();
     stopCamera(streamRef.current);
@@ -295,6 +315,7 @@ export function App() {
       : 'tentative'
     : 'none';
   const current = read?.match ? evaluateAlert(prices.get(read.match.cardName), rate?.usdBrl ?? null, alertSettings) : null;
+  const history = [...session.entries].reverse();
   const alertCount = history.filter((h) => h.level === 'yellow' || h.level === 'red').length;
 
   return (
@@ -312,11 +333,14 @@ export function App() {
             ))}
           </select>
         )}
+        {!running && session.entries.length > 0 && (
+          <button onClick={() => setShowSummary(true)}>Resumo</button>
+        )}
         {running ? (
-          <button onClick={stop}>Parar</button>
+          <button onClick={finish}>Parar</button>
         ) : (
           <button className="primary" onClick={() => start()} disabled={busy}>
-            {busy ? 'Iniciando…' : 'Iniciar sessão'}
+            {busy ? 'Iniciando…' : session.entries.length ? 'Continuar sessão' : 'Iniciar sessão'}
           </button>
         )}
       </header>
@@ -347,6 +371,17 @@ export function App() {
         )}
       </div>
 
+      {showSummary && (
+        <SessionSummaryView
+          session={session}
+          onRemove={(id) => setSession((s) => removeEntry(s, id))}
+          onContinue={() => {
+            setShowSummary(false);
+            void start();
+          }}
+          onNewSession={startNewSession}
+        />
+      )}
       {flash && <div key={flash.id} className={`flash ${flash.level}`} onAnimationEnd={() => setFlash(null)} />}
 
       <section className="panel">
@@ -383,10 +418,10 @@ export function App() {
           </summary>
           <ol className="history">
             {history.map((h) => {
-              const p = prices.get(h.name);
+              const p = h.price;
               return (
-                <li key={h.at} className={h.level}>
-                  {h.name}{' '}
+                <li key={h.id} className={h.level}>
+                  {h.cardName}{' '}
                   <span className="muted">
                     — {formatPrice(p?.minUsd ?? null, rate)} a {formatPrice(p?.maxUsd ?? null, rate)}
                   </span>
@@ -394,7 +429,11 @@ export function App() {
               );
             })}
           </ol>
-          {history.length > 0 && <button onClick={() => setHistory([])}>Limpar lista</button>}
+          {history.length > 0 && (
+            <button className="small" onClick={() => setShowSummary(true)}>
+              Ver resumo
+            </button>
+          )}
         </details>
 
         <details>

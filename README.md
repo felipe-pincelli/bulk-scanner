@@ -4,9 +4,10 @@ App web para caçar cartas valiosas no meio do bulk de Magic: The Gathering.
 Você aponta a câmera, passa as cartas uma após a outra e o app avisa quando aparece
 uma carta cara.
 
-> **Status:** Etapa 3. O app lê o nome da carta pela câmera, mostra a faixa de
-> preço em reais e avisa (som + flash na tela inteira) quando aparece uma carta que
-> vale mais que o seu mínimo. A lista final da sessão vem na Etapa 4.
+> **Status:** Etapa 4. O app lê o nome da carta pela câmera, mostra a faixa de
+> preço em reais, avisa (som + flash na tela inteira) quando aparece uma carta que
+> vale mais que o seu mínimo e, ao final, mostra o resumo da sessão com o total
+> estimado. Próximo passo: instalar na tela inicial e funcionar offline (Etapa 5).
 
 ## Como usar (sem instalar nada)
 
@@ -77,6 +78,21 @@ Em **Alertas** você escolhe:
 silencioso ligada. Em versões antigas, desligue o modo silencioso. Confira o volume
 de mídia.
 
+## Resumo da sessão
+
+- Toque em **Parar** para ver o resumo: cartas com alerta (da mais valiosa para a
+  menos), faixa de preço, edição mais cara e o **total estimado**.
+  - **Total estimado** = soma da versão **mais barata** de cada carta com alerta,
+    ou seja, o mínimo garantido. Embaixo aparece quanto seria se todas fossem as
+    edições mais caras.
+  - "Edição não identificada": o app lê só o nome. Ler a edição pelo rodapé da
+    carta é uma melhoria futura.
+- **remover**: tira da lista um alerta falso (carta lida errado).
+- **Copiar lista**: copia um texto pronto para colar no WhatsApp ou em notas.
+- **Continuar escaneando** / **Nova sessão** (apaga a lista atual).
+- A sessão fica **salva no aparelho**. Se a página recarregar, nada se perde: o
+  botão vira "Continuar sessão" e o botão **Resumo** fica disponível.
+
 ## Preços
 
 - **Fonte:** Scryfall, com os preços do TCGplayer em dólar. Para cada nome de carta,
@@ -138,6 +154,7 @@ src/core/           TODA a lógica, sem interface (reaproveitável no Capacitor)
   alerts/             regras de alerta (níveis, critério) e cooldown por carta
   platform/           som, tela ligada e "feedback" (onde entrará a vibração via Capacitor)
   settings/           preferências salvas no aparelho
+  session/            sessão (cartas lidas, alertas, total) salva no IndexedDB
   storage/            acesso ao IndexedDB
   scanner/            laço de leitura contínua
 src/ui/             interface (React)
