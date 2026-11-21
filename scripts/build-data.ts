@@ -39,6 +39,7 @@ interface ScryfallCard {
   layout: string;
   games?: string[];
   oversized?: boolean;
+  promo_types?: string[];
   set: string;
   set_name: string;
   prices?: { usd?: string | null; usd_foil?: string | null; usd_etched?: string | null };
@@ -161,6 +162,9 @@ async function main() {
     total++;
     if (SKIP_LAYOUTS.has(card.layout) || card.oversized) continue;
     if (card.games && !card.games.includes('paper')) continue; // só Arena/MTGO
+    // Cartas numeradas (ex.: "123/500"): tiragem minúscula, nunca aparecem em bulk
+    // e distorcem o preço máximo (um Sol Ring numerado passa de US$ 3.000).
+    if (card.promo_types?.includes('serialized')) continue;
 
     let row = rows.get(card.name);
     if (!row) rows.set(card.name, (row = [card.name, null, null, null, '', '', '']));
