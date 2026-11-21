@@ -1,0 +1,7 @@
+node_modules
+dist
+# Gerados automaticamente (npm run data / scripts/copy-tesseract.ts)
+public/data
+public/tesseract
+*.log
+.DS_Store
