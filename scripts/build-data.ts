@@ -103,10 +103,21 @@ async function openCards(): Promise<{ chunks: AsyncIterable<Uint8Array | string>
   const list = await getJson<{ data: BulkItem[] }>('https://api.scryfall.com/bulk-data');
   const meta = list.data.find((item) => item.type === 'default_cards');
   if (!meta) throw new Error(`"default_cards" não encontrado em /bulk-data (${list.data.map((i) => i.type).join(', ')})`);
-  // O nome do campo do link já variou entre versões da API; aceita as variações.
-  const m = meta as unknown as Record<string, unknown>;
-  const url = [m.download_uri, m.download_url, m.uri].find((v) => typeof v === 'string' && v.startsWith('http'));
-  if (typeof url !== 'string') throw new Error(`Link de download não encontrado: ${JSON.stringify(meta)}`);
+  // O link do arquivo pode vir na lista ou só nos detalhes do item, e o nome do
+  // campo já variou entre versões da API. Procura nos dois lugares.
+  console.log('Item do Scryfall:', JSON.stringify(meta).slice(0, 600));
+  const findUrl = (obj: Record<string, unknown>) =>
+    [obj.download_uri, obj.download_url, obj.file_uri, obj.file_url].find(
+      (v): v is string => typeof v === 'string' && v.startsWith('http'),
+    );
+  let url = findUrl(meta as unknown as Record<string, unknown>);
+  const detailUri = (meta as unknown as { uri?: string }).uri;
+  if (!url && detailUri) {
+    const detail = await getJson<Record<string, unknown>>(detailUri);
+    console.log('Detalhes:', JSON.stringify(detail).slice(0, 600));
+    url = findUrl(detail);
+  }
+  if (!url) throw new Error('Link de download não encontrado (veja o log acima).');
   console.log(`Baixando ${url} (${meta.size ? Math.round(meta.size / 1e6) + ' MB' : 'tamanho desconhecido'})…`);
   const res = await fetch(url, { headers: HEADERS });
   if (!res.ok || !res.body) throw new Error(`Download falhou: HTTP ${res.status}`);
@@ -167,6 +178,12 @@ async function main() {
   }
   // Cartas que só existem em foil: o "mais barato" é o foil mais barato.
   for (const row of rows.values()) if (row[1] === null && row[3] !== null) row[1] = row[3];
+
+  // Trava de segurança: nunca publicar um índice vazio/quebrado.
+  const minNames = process.argv.includes('--file') ? 1 : 20000;
+  if (rows.size < minNames) {
+    throw new Error(`Índice com só ${rows.size} nomes (esperado > ${minNames}). Nada foi publicado.`);
+  }
 
   const usdBrl = await fetchUsdBrl();
   const index = {
