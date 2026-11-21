@@ -88,7 +88,18 @@ de mídia.
   - "Edição não identificada": o app lê só o nome. Ler a edição pelo rodapé da
     carta é uma melhoria futura.
 - **remover**: tira da lista um alerta falso (carta lida errado).
-- **Copiar lista**: copia um texto pronto para colar no WhatsApp ou em notas.
+- **Copiar resumo**: copia um texto pronto para colar no WhatsApp ou em notas.
+- **Exportar**: gera a lista para outros sites e apps:
+  - **Lista de texto** (`2 Moat`, uma carta por linha): é só colar no importador do
+    **Moxfield** (Collection ou deck → Import), **Archidekt**, **MTGGoldfish**,
+    **TappedOut**, **Deckstats**, **ManaBox**, **Scryfall** etc. Cópias repetidas
+    são somadas. Sai sem edição, porque o app ainda não a identifica: o site escolhe
+    uma padrão.
+  - **CSV** para planilha (Excel, Google Sheets, Numbers), com quantidade, preços em
+    R$ e US$ e a edição mais cara. Usa o padrão brasileiro (`;` e vírgula decimal).
+  - Escolha quais cartas exportar: só com alerta, com alerta + "confira a edição",
+    ou todas as lidas. Depois **Copiar**, **Baixar arquivo** ou **Compartilhar…**
+    (no iPhone, abre o menu de compartilhar).
 - **Continuar escaneando** / **Nova sessão** (apaga a lista atual).
 - A sessão fica **salva no aparelho**. Se a página recarregar, nada se perde: o
   botão vira "Continuar sessão" e o botão **Resumo** fica disponível.

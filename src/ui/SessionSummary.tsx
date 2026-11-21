@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { ExportPanel } from './ExportPanel';
 import {
   formatBrl,
   sessionToText,
@@ -116,9 +117,11 @@ export function SessionSummaryView({
           </details>
         )}
 
+        <ExportPanel entries={session.entries} />
+
         <div className="summary-actions">
           <button onClick={copy} disabled={s.scanned === 0}>
-            {copied ? 'Copiado!' : 'Copiar lista'}
+            {copied ? 'Copiado!' : 'Copiar resumo'}
           </button>
           <button onClick={confirmNew}>Nova sessão</button>
           <button className="primary" onClick={onContinue}>

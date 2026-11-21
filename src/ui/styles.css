@@ -133,3 +133,9 @@ summary { cursor: pointer; color: var(--muted); }
 .entry-sub { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; color: var(--muted); margin-top: 2px; }
 button.link { background: none; border: none; padding: 0; color: #8fb3ff; font-size: 13px; text-decoration: underline; }
 .summary-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+
+.export-preview {
+  width: 100%; font: 13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--text);
+  background: #16161a; border: 1px solid #3a3a40; border-radius: 8px; padding: 8px; resize: vertical;
+}
+.settings select { max-width: 100%; width: 100%; }
