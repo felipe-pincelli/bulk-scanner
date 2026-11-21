@@ -103,8 +103,12 @@ async function openCards(): Promise<{ chunks: AsyncIterable<Uint8Array | string>
   const list = await getJson<{ data: BulkItem[] }>('https://api.scryfall.com/bulk-data');
   const meta = list.data.find((item) => item.type === 'default_cards');
   if (!meta) throw new Error(`"default_cards" não encontrado em /bulk-data (${list.data.map((i) => i.type).join(', ')})`);
-  console.log(`Baixando ${meta.download_uri} (${Math.round(meta.size / 1e6)} MB)…`);
-  const res = await fetch(meta.download_uri, { headers: HEADERS });
+  // O nome do campo do link já variou entre versões da API; aceita as variações.
+  const m = meta as unknown as Record<string, unknown>;
+  const url = [m.download_uri, m.download_url, m.uri].find((v) => typeof v === 'string' && v.startsWith('http'));
+  if (typeof url !== 'string') throw new Error(`Link de download não encontrado: ${JSON.stringify(meta)}`);
+  console.log(`Baixando ${url} (${meta.size ? Math.round(meta.size / 1e6) + ' MB' : 'tamanho desconhecido'})…`);
+  const res = await fetch(url, { headers: HEADERS });
   if (!res.ok || !res.body) throw new Error(`Download falhou: HTTP ${res.status}`);
   return { chunks: Readable.fromWeb(res.body as never), updatedAt: meta.updated_at };
 }
