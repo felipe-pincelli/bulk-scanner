@@ -210,6 +210,11 @@ async function main() {
   };
   const json = JSON.stringify(index);
   writeFileSync('public/data/magic-index.json', json);
+  // Amostra para conferência rápida no log do GitHub Actions.
+  for (const name of ['Lightning Bolt', 'Sol Ring', 'Moat', 'Llanowar Elves', 'Fire // Ice']) {
+    const r = rows.get(name);
+    if (r) console.log(`  ${name}: US$ ${r[1]} – ${r[3]} (sem foil até ${r[2]}) · mais cara: ${r[5]} ${r[6]}`);
+  }
   const withPrice = index.rows.filter((r) => r[3] !== null).length;
   console.log(
     `Impressões lidas: ${total} · nomes: ${rows.size} (${withPrice} com preço) · apelidos: ${Object.keys(aliases).length}` +
