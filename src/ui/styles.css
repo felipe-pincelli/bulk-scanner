@@ -29,14 +29,27 @@ select { max-width: 45vw; }
 
 .stage { position: relative; overflow: hidden; background: #000; container-type: size; min-height: 0; }
 .stage video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-.guide {
+.zone {
   position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
-  aspect-ratio: 63 / 88;
-  width: min(calc(var(--g) * 100cqw), calc(var(--g) * 100cqh * var(--aspect)));
-  border: 2px solid rgba(255, 255, 255, 0.85); border-radius: 4%;
+  aspect-ratio: 1;
+  width: min(calc(var(--g) * 100cqw), calc(var(--g) * 100cqh));
   box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.35);
 }
-.name-band { position: absolute; border: 2px dashed rgba(255, 255, 255, 0.9); border-radius: 4px; }
+/* Silhueta sugerindo onde pôr a carta (em pé). Deitada também funciona. */
+.card-ghost {
+  position: absolute; top: 0; bottom: 0; left: 50%; transform: translateX(-50%);
+  width: calc(var(--aspect) * 100%);
+  border: 1px dashed rgba(255, 255, 255, 0.35); border-radius: 4%;
+}
+.corner { position: absolute; width: 14%; height: 14%; border: 0 solid #fff; }
+.corner.tl { left: 0; top: 0; border-width: 4px 0 0 4px; border-radius: 10px 0 0 0; }
+.corner.tr { right: 0; top: 0; border-width: 4px 4px 0 0; border-radius: 0 10px 0 0; }
+.corner.bl { left: 0; bottom: 0; border-width: 0 0 4px 4px; border-radius: 0 0 0 10px; }
+.corner.br { right: 0; bottom: 0; border-width: 0 4px 4px 0; border-radius: 0 0 10px 0; }
+.name-band {
+  position: absolute; border: 2px dashed rgba(255, 255, 255, 0.6); border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06); transition: all 0.15s;
+}
 .name-band.tentative { border-color: var(--warn); border-style: solid; }
 .name-band.confirmed { border-color: var(--ok); border-style: solid; background: rgba(46, 204, 113, 0.15); }
 .hint {
@@ -53,6 +66,7 @@ select { max-width: 45vw; }
 .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 .preview { height: 40px; max-width: 100%; background: #fff; border-radius: 4px; }
 .slider { display: grid; font-size: 13px; color: var(--muted); flex: 1; min-width: 160px; }
+.check { display: flex; gap: 6px; align-items: center; font-size: 13px; color: var(--muted); }
 .history { margin: 6px 0; padding-left: 22px; font-size: 14px; }
 .status { font-size: 12px; color: var(--muted); }
 .error { background: #5a1d1d; color: #ffd6d6; padding: 8px 10px; border-radius: 8px; }

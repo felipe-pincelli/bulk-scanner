@@ -23,8 +23,14 @@ export interface GameProvider {
   displayName: string;
   /** Largura ÷ altura da carta física (Magic: 63 mm ÷ 88 mm). */
   cardAspect: number;
-  /** Onde fica o nome na carta. */
+  /** Onde fica o nome na carta (usado para calcular o tamanho das letras). */
   nameRegion: Region;
+  /**
+   * Faixa onde o app PROCURA o nome, em frações da área de detecção quadrada
+   * (lado = altura da carta), com a carta em pé. É bem maior que o nome, para a
+   * carta não precisar estar perfeitamente alinhada.
+   */
+  nameSearchBand: Region;
   /** Caracteres que podem aparecer num nome (ajuda o OCR a não "inventar" símbolos). */
   nameCharWhitelist: string;
   /** Carrega a lista de nomes usada para corrigir erros do OCR. */

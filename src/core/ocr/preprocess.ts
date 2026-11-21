@@ -1,52 +1,60 @@
 import type { Rect } from '../camera/geometry';
 
 /**
- * Prepara o recorte do nome para o OCR:
- * - recorta só a faixa do nome (muito menos pixels = muito mais rápido);
- * - redimensiona para uma altura fixa (o Tesseract gosta de letras com ~30 px);
- * - converte para tons de cinza e estica o contraste;
- * - se o fundo for escuro (alguns frames têm texto branco), inverte as cores,
- *   porque o Tesseract lê melhor texto escuro em fundo claro.
+ * Prepara a faixa de busca para o OCR:
+ * - recorta só a faixa (bem menos pixels que o quadro inteiro = mais rápido);
+ * - gira para o texto ficar na horizontal (carta deitada ou de cabeça para baixo);
+ * - redimensiona (o Tesseract gosta de letras com ~25–30 px de altura);
+ * - converte para tons de cinza e estica o contraste.
+ * Texto claro em fundo escuro é tratado pelo próprio Tesseract (ele tenta inverter).
  */
-const TARGET_HEIGHT = 56;
-const PAD = 12;
+const PAD = 10;
 
-export function cropForOcr(source: HTMLVideoElement, rect: Rect, out: HTMLCanvasElement): HTMLCanvasElement {
-  const scale = TARGET_HEIGHT / rect.h;
-  const w = Math.max(1, Math.round(rect.w * scale));
-  const h = TARGET_HEIGHT;
+export function cropForOcr(
+  source: HTMLVideoElement | HTMLCanvasElement,
+  rect: Rect,
+  out: HTMLCanvasElement,
+  opts: { rotateDeg: 0 | 90 | 180 | 270; scale: number },
+): HTMLCanvasElement {
+  const { rotateDeg, scale } = opts;
+  const sw = Math.max(1, Math.round(rect.w * scale));
+  const sh = Math.max(1, Math.round(rect.h * scale));
+  const sideways = rotateDeg === 90 || rotateDeg === 270;
+  const w = sideways ? sh : sw;
+  const h = sideways ? sw : sh;
   out.width = w + PAD * 2;
   out.height = h + PAD * 2;
+
   const ctx = out.getContext('2d', { willReadFrequently: true })!;
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, out.width, out.height);
+  ctx.save();
+  ctx.translate(PAD + w / 2, PAD + h / 2);
+  ctx.rotate((rotateDeg * Math.PI) / 180);
   ctx.imageSmoothingQuality = 'high';
-  ctx.drawImage(source, rect.x, rect.y, rect.w, rect.h, PAD, PAD, w, h);
+  ctx.drawImage(source, rect.x, rect.y, rect.w, rect.h, -sw / 2, -sh / 2, sw, sh);
+  ctx.restore();
 
   const img = ctx.getImageData(PAD, PAD, w, h);
   const px = img.data;
-  const gray = new Uint8ClampedArray(w * h);
-  let min = 255;
-  let max = 0;
-  let sum = 0;
-  for (let i = 0, j = 0; j < gray.length; i += 4, j++) {
+  // Contraste: usa os percentis 2% e 98% (ignora reflexos e pontos pretos isolados).
+  const hist = new Uint32Array(256);
+  for (let i = 0; i < px.length; i += 4) {
     const v = (px[i] * 299 + px[i + 1] * 587 + px[i + 2] * 114) / 1000;
-    gray[j] = v;
-    if (v < min) min = v;
-    if (v > max) max = v;
-    sum += v;
+    px[i] = v;
+    hist[v | 0]++;
   }
-  const mean = sum / gray.length;
-  const range = Math.max(1, max - min);
-  // A maior parte do recorte é fundo: se a média é escura, o fundo é escuro.
-  const invert = mean < min + range / 2;
-
-  for (let i = 0, j = 0; j < gray.length; i += 4, j++) {
-    let v = ((gray[j] - min) * 255) / range;
-    if (invert) v = 255 - v;
+  const total = w * h;
+  let lo = 0;
+  let hi = 255;
+  for (let acc = 0; lo < 255 && (acc += hist[lo]) < total * 0.02; lo++);
+  for (let acc = 0; hi > 0 && (acc += hist[hi]) < total * 0.02; hi--);
+  const range = Math.max(1, hi - lo);
+  for (let i = 0; i < px.length; i += 4) {
+    const v = ((px[i] - lo) * 255) / range;
     px[i] = px[i + 1] = px[i + 2] = v;
     px[i + 3] = 255;
   }
-  ctx.fillStyle = '#fff';
-  ctx.fillRect(0, 0, out.width, out.height);
   ctx.putImageData(img, PAD, PAD);
   return out;
 }

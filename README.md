@@ -29,16 +29,22 @@ endereços `https://`, e o GitHub Pages já fornece isso.
 ## Como testar o protótipo
 
 1. Abra o link e toque em **Iniciar**. Permita o uso da câmera.
-2. Encaixe a carta na moldura branca, com o **nome dentro da faixa tracejada**.
-   Use o controle "Tamanho da moldura" para ajustar (útil com webcam fixa no PC).
+2. Coloque a carta **dentro do quadrado** (cantos brancos), em pé, deitada ou de
+   cabeça para baixo. Não precisa alinhar com precisão: o app procura o nome numa
+   faixa larga perto da borda da carta. Use "Tamanho da área de detecção" para que
+   a carta ocupe boa parte do quadrado (útil com webcam fixa no PC).
 3. Leia o painel:
    - **Nome grande**: amarelo = reconhecido uma vez; verde = confirmado
      (lido igual 2 vezes seguidas).
-   - **OCR leu**: o texto cru que o OCR enxergou.
+   - **Faixa colorida no quadrado**: onde o app está procurando o nome agora.
+   - **OCR leu**: o texto cru que o OCR enxergou (linhas separadas por `|`).
    - **Palpite**: o nome mais parecido na lista e a % de semelhança.
+   - **Orientação**: em pé, deitada ou de cabeça para baixo. O app descobre
+     sozinho e "gruda" na orientação que funcionou. Desmarque "Detectar carta
+     deitada" se você sempre usa a carta em pé: fica um pouco mais rápido.
    - **OCR (ms)**: quanto tempo cada leitura levou.
-   - **Miniatura branca**: exatamente o recorte enviado ao OCR. Se o nome não
-     aparece nítido ali, ajuste a moldura, a distância ou a luz.
+   - **Miniatura**: exatamente o recorte enviado ao OCR. Se o nome não aparece
+     nítido ali, ajuste a distância, o foco ou a luz.
    - **Cartas confirmadas**: lista para você conferir quantas acertou.
 
 **No PC:** se houver mais de uma webcam, aparece um seletor no topo. A escolha
@@ -86,8 +92,12 @@ src/ui/             interface (React)
 
 ### Decisões técnicas
 - **Tesseract.js** para o OCR: roda 100% no aparelho, funciona no Safari e é
-  estável. Para ser rápido, lê só a faixa do nome, em modo "uma linha", com no
-  máximo 4 leituras por segundo.
+  estável. Para ser rápido, lê só uma faixa perto da borda da carta (no máximo 4
+  leituras por segundo), com dois leitores em paralelo usando modos diferentes de
+  separar linhas. Cada modo sozinho falhava em casos diferentes; juntos são
+  bem mais confiáveis.
+- **Orientação automática**: a cada leitura, testa primeiro a orientação que
+  vinha funcionando. Só se não achar nada, testa mais uma das outras três.
 - **Corretor de nomes**: o OCR não precisa acertar todas as letras. O texto lido é
   comparado com todos os nomes oficiais de Magic, e o mais parecido vence.
 - **Dados do Scryfall** são baixados pelo GitHub Actions uma vez por dia, nunca

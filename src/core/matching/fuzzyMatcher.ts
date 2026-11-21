@@ -104,14 +104,33 @@ export class FuzzyMatcher {
     const candidates = touched.slice(0, candidatesToCheck);
     for (const id of touched) this.hits[id] = 0;
 
-    // Fase 2: distância de edição. Também compara só o começo do texto lido,
-    // porque o recorte às vezes pega lixo no fim (símbolos de mana).
+    // Fase 2: distância de edição. Como a faixa de busca é larga, o texto lido
+    // pode ter sobras antes/depois do nome (borda, símbolos de mana, arte).
+    // Então também comparamos o nome com "janelas" do texto que começam no
+    // início de cada palavra.
+    const wordStarts = [0];
+    for (let i = 0; i < query.length; i++) if (query[i] === ' ') wordStarts.push(i + 1);
+
     let best: MatchResult | null = null;
     for (const id of candidates) {
       const key = this.keys[id];
-      const prefix = query.slice(0, key.length);
-      const score = Math.max(similarity(query, key), similarity(prefix, key) - 0.05);
-      if (!best || score > best.score) {
+      // Nomes muito curtos ("Ice", "Opt") só valem se a linha for exatamente
+      // o nome — senão qualquer pedaço de lixo viraria um falso positivo.
+      if (key.length < 5) {
+        if (query === key && (!best || best.score < 1)) {
+          best = { cardName: this.entries[id].cardName, matchText: this.entries[id].matchText, score: 1 };
+        }
+        continue;
+      }
+      let score = similarity(query, key);
+      if (query.length > key.length) {
+        for (const start of wordStarts) {
+          const window = query.slice(start, start + key.length);
+          if (window.length < key.length * 0.8) break;
+          score = Math.max(score, similarity(window, key) - 0.03);
+        }
+      }
+      if (!best || score > best.score || (score === best.score && key.length > normalize(best.matchText).length)) {
         best = { cardName: this.entries[id].cardName, matchText: this.entries[id].matchText, score };
       }
     }

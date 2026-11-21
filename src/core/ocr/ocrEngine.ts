@@ -2,7 +2,7 @@
  * Contrato do motor de OCR. Hoje: Tesseract.js. Se um dia trocarmos por algo
  * mais rápido, só uma nova implementação deste contrato é necessária.
  */
-export interface OcrResult {
+export interface OcrLine {
   text: string;
   /** 0 a 100, segundo o próprio motor. */
   confidence: number;
@@ -10,7 +10,7 @@ export interface OcrResult {
 
 export interface OcrEngine {
   init(onProgress?: (msg: string) => void): Promise<void>;
-  /** Lê UMA linha de texto da imagem. */
-  readLine(image: HTMLCanvasElement): Promise<OcrResult>;
+  /** Lê todas as linhas de texto encontradas na imagem. */
+  readLines(image: HTMLCanvasElement): Promise<OcrLine[]>;
   dispose(): Promise<void>;
 }

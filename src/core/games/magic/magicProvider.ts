@@ -8,6 +8,9 @@ export const magicProvider: GameProvider = {
   // termina antes do custo de mana (que fica à direita) — o resto é sobra que o
   // corretor de nomes ignora.
   nameRegion: { x: 0.065, y: 0.04, w: 0.72, h: 0.065 },
+  // Topo da área de detecção, largura inteira, 28% da altura: aceita a carta um
+  // pouco deslocada, menor ou maior que a moldura.
+  nameSearchBand: { x: 0, y: 0, w: 1, h: 0.28 },
   nameCharWhitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz ',-",
 
   async loadNames(baseUrl) {

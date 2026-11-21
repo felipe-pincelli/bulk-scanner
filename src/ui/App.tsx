@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { listCameras, startCamera, stopCamera, type CameraDevice } from '../core/camera/cameraService';
-import { screenRectToVideoRect, subRect } from '../core/camera/geometry';
+import { screenRectToVideoRect } from '../core/camera/geometry';
 import { defaultGame } from '../core/games/registry';
 import { FuzzyMatcher } from '../core/matching/fuzzyMatcher';
 import { TesseractEngine } from '../core/ocr/tesseractEngine';
+import { orientationLabel, rotateRegion } from '../core/scanner/orientation';
 import { Scanner, type ScanRead } from '../core/scanner/scanner';
 
 /**
@@ -36,7 +37,7 @@ interface HistoryItem {
 
 export function App() {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const guideRef = useRef<HTMLDivElement>(null);
+  const zoneRef = useRef<HTMLDivElement>(null);
   const previewRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const engineRef = useRef<TesseractEngine | null>(null);
@@ -51,7 +52,8 @@ export function App() {
   const [namesStatus, setNamesStatus] = useState('carregando…');
   const [cameras, setCameras] = useState<CameraDevice[]>([]);
   const [deviceId, setDeviceId] = useState(() => loadPref('cameraId', ''));
-  const [guideSize, setGuideSize] = useState(() => Number(loadPref('guideSize', '0.8')));
+  const [zoneSize, setZoneSize] = useState(() => Number(loadPref('zoneSize', '0.92')));
+  const [autoRotate, setAutoRotate] = useState(() => loadPref('autoRotate', '1') === '1');
   const [read, setRead] = useState<ScanRead | null>(null);
   const [readsPerSec, setReadsPerSec] = useState(0);
   const [history, setHistory] = useState<HistoryItem[]>([]);
@@ -70,13 +72,12 @@ export function App() {
       .catch((e: Error) => setNamesStatus(`indisponível — ${e.message}`));
   }, []);
 
-  const getNameRect = useCallback(() => {
+  const getZoneRect = useCallback(() => {
     const video = videoRef.current;
-    const guide = guideRef.current;
-    if (!video || !guide) return null;
-    const g = guide.getBoundingClientRect();
-    const screenRect = subRect({ x: g.left, y: g.top, w: g.width, h: g.height }, game.nameRegion);
-    return screenRectToVideoRect(screenRect, video);
+    const zone = zoneRef.current;
+    if (!video || !zone) return null;
+    const z = zone.getBoundingClientRect();
+    return screenRectToVideoRect({ x: z.left, y: z.top, w: z.width, h: z.height }, video);
   }, []);
 
   const onRead = useCallback((r: ScanRead) => {
@@ -126,8 +127,10 @@ export function App() {
           video,
           engine: engineRef.current,
           matcher: matcherRef.current,
-          getNameRect,
+          game,
+          getZoneRect,
           onRead,
+          autoRotate,
         });
       }
       scannerRef.current.start();
@@ -157,14 +160,20 @@ export function App() {
     if (running) void start(id);
   }
 
-  function changeGuide(v: number) {
-    setGuideSize(v);
-    savePref('guideSize', String(v));
+  function changeZone(v: number) {
+    setZoneSize(v);
+    savePref('zoneSize', String(v));
+  }
+
+  function changeAutoRotate(on: boolean) {
+    setAutoRotate(on);
+    savePref('autoRotate', on ? '1' : '0');
+    scannerRef.current?.setAutoRotate(on);
   }
 
   useEffect(() => () => stop(), []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const r = game.nameRegion;
+  const band = rotateRegion(game.nameSearchBand, read?.orientation ?? 0);
   const status = read?.match
     ? read.confirmed
       ? 'confirmed'
@@ -197,19 +206,25 @@ export function App() {
 
       <div className="stage">
         <video ref={videoRef} playsInline muted autoPlay />
-        <div
-          ref={guideRef}
-          className="guide"
-          style={{ '--g': guideSize, '--aspect': game.cardAspect } as React.CSSProperties}
-        >
+        <div ref={zoneRef} className="zone" style={{ '--g': zoneSize } as React.CSSProperties}>
+          <div className="card-ghost" style={{ '--aspect': game.cardAspect } as React.CSSProperties} />
           <div
             className={`name-band ${status}`}
-            style={{ left: `${r.x * 100}%`, top: `${r.y * 100}%`, width: `${r.w * 100}%`, height: `${r.h * 100}%` }}
+            style={{
+              left: `${band.x * 100}%`,
+              top: `${band.y * 100}%`,
+              width: `${band.w * 100}%`,
+              height: `${band.h * 100}%`,
+            }}
           />
+          <i className="corner tl" />
+          <i className="corner tr" />
+          <i className="corner bl" />
+          <i className="corner br" />
         </div>
         {!running && !busy && (
           <div className="hint">
-            Toque em <b>Iniciar</b> e encaixe a carta na moldura, com o nome dentro da faixa.
+            Toque em <b>Iniciar</b> e coloque a carta dentro do quadrado — em pé ou deitada.
           </div>
         )}
       </div>
@@ -226,6 +241,7 @@ export function App() {
           <span>
             Palpite: {read?.bestGuess ? `${read.bestGuess.cardName} (${Math.round(read.bestGuess.score * 100)}%)` : '—'}
           </span>
+          <span>Orientação: {read ? orientationLabel[read.orientation] : '–'}</span>
           <span>OCR: {read ? Math.round(read.ocrMs) : '–'} ms</span>
           <span>Correção: {read ? read.matchMs.toFixed(1) : '–'} ms</span>
           <span>{readsPerSec.toFixed(1)} leituras/s</span>
@@ -234,15 +250,19 @@ export function App() {
         <div className="row">
           <canvas ref={previewRef} className="preview" aria-label="Recorte enviado ao OCR" />
           <label className="slider">
-            Tamanho da moldura
+            Tamanho da área de detecção
             <input
               type="range"
               min={0.3}
-              max={0.98}
+              max={1}
               step={0.01}
-              value={guideSize}
-              onChange={(e) => changeGuide(Number(e.target.value))}
+              value={zoneSize}
+              onChange={(e) => changeZone(Number(e.target.value))}
             />
+          </label>
+          <label className="check">
+            <input type="checkbox" checked={autoRotate} onChange={(e) => changeAutoRotate(e.target.checked)} />
+            Detectar carta deitada / de cabeça para baixo
           </label>
         </div>
 
