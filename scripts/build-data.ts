@@ -99,9 +99,10 @@ async function openCards(): Promise<{ chunks: AsyncIterable<Uint8Array | string>
   if (fileArg > 0) {
     return { chunks: createReadStream(process.argv[fileArg + 1], 'utf8'), updatedAt: new Date().toISOString() };
   }
-  const meta = await getJson<{ download_uri: string; updated_at: string; size: number }>(
-    'https://api.scryfall.com/bulk-data/default-cards',
-  );
+  type BulkItem = { type: string; download_uri: string; updated_at: string; size: number };
+  const list = await getJson<{ data: BulkItem[] }>('https://api.scryfall.com/bulk-data');
+  const meta = list.data.find((item) => item.type === 'default_cards');
+  if (!meta) throw new Error(`"default_cards" não encontrado em /bulk-data (${list.data.map((i) => i.type).join(', ')})`);
   console.log(`Baixando ${meta.download_uri} (${Math.round(meta.size / 1e6)} MB)…`);
   const res = await fetch(meta.download_uri, { headers: HEADERS });
   if (!res.ok || !res.body) throw new Error(`Download falhou: HTTP ${res.status}`);
