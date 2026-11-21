@@ -80,6 +80,20 @@ Defina **"Alertar a partir de R$"** no painel. O valor fica salvo no aparelho.
 | 🔴 **Vermelho** | vale mais que **5×** o mínimo | flash vermelho piscando 2× + 4 bipes |
 | 🔵 **Azul** | "confira a edição" (veja abaixo) | borda azul + 1 bipe grave |
 
+**Edição pelo rodapé:** cartas de 2015 em diante trazem no canto inferior esquerdo
+o número de colecionador e o código da edição (ex.: `117/384 R` e `2X2 • EN`).
+Quando o preço da carta **depende da edição** (alguma versão passa do mínimo e
+outra não), o app lê esse rodapé e usa o **preço exato daquela impressão**:
+- edição identificada e cara → amarelo/vermelho com o preço certo;
+- edição identificada e barata, mas a versão foil passa do mínimo → azul
+  **"confira se é foil"**;
+- rodapé não lido (carta antiga, borrada, fora do quadrado) → azul **"confira a
+  edição"**, como antes.
+
+Nesses casos o alerta espera até ~1,5 s pela leitura do rodapé. Cartas que não
+dependem da edição (ex.: Moat, cara em qualquer versão) alertam na hora. O painel
+mostra "Edição: …" quando ela é identificada.
+
 **Cooldown:** a mesma carta só alerta uma vez enquanto estiver na frente da câmera.
 Se ela sair e voltar (por exemplo, outra cópia), alerta de novo.
 
@@ -99,19 +113,22 @@ ligada. Em versões antigas, desligue o modo silencioso. Confira o volume de mí
 ## 4. Resumo da sessão e exportação
 
 Ao tocar em **Parar**:
-- Aparecem as cartas com alerta, da mais valiosa para a menos, com a faixa de preço
-  e a edição mais cara, e o **total estimado**. O total é a soma da versão mais
+- Aparecem as cartas com alerta, da mais valiosa para a menos, com a edição
+  identificada (ou a faixa de preço e a edição mais cara, se não identificada), e o
+  **total estimado**. O total é a soma da versão mais
   barata de cada carta com alerta, ou seja, o mínimo garantido. Logo abaixo aparece
   quanto daria se todas fossem as edições mais caras.
 - **remover** tira um alerta falso da lista.
 - **Copiar resumo**: texto pronto para WhatsApp ou notas.
 - **Exportar**:
-  - **Lista de texto** (`2 Moat`, uma carta por linha): cole no importador do
-    **Moxfield** (Collection ou deck → Import), **Archidekt**, **MTGGoldfish**,
-    **TappedOut**, **Deckstats**, **ManaBox**, **Scryfall** etc. Cópias repetidas
-    são somadas.
-  - **CSV** para Excel, Google Sheets ou Numbers, com quantidade, preços em R$ e US$
-    e a edição mais cara. Usa o padrão brasileiro: `;` como separador e vírgula
+  - **Lista com edição** (`1 Lightning Bolt (2X2) 117`): formato do **Moxfield**
+    (Collection ou deck → Import), aceito também pelo **Archidekt** e **ManaBox**.
+    Cartas sem edição identificada saem só com o nome.
+  - **Lista simples** (`2 Moat`): só quantidade e nome, aceita por praticamente
+    qualquer site (**MTGGoldfish**, **TappedOut**, **Deckstats**, **Scryfall**…).
+  - Nas listas, cópias repetidas são somadas.
+  - **CSV** para Excel, Google Sheets ou Numbers, com quantidade, edição e número
+    (quando identificados), preços em R$ e US$ e a edição mais cara. Usa o padrão brasileiro: `;` como separador e vírgula
     decimal.
   - Escolha quais cartas entram (só com alerta, com alerta + azul, ou todas) e use
     **Copiar**, **Baixar arquivo** ou **Compartilhar…**. No iPhone, este último
@@ -125,15 +142,17 @@ botão vira "Continuar sessão" e o botão **Resumo** fica disponível no topo.
 
 - **Fonte:** [Scryfall](https://scryfall.com), com os preços do TCGplayer em dólar.
   Para cada nome de carta, o app guarda o preço da impressão **mais barata**, da
-  **mais cara** (incluindo foil), da mais cara **sem foil**, e qual edição é a mais
-  cara. Ficam de fora tokens, cartas só digitais (Arena/MTGO) e cartas numeradas
+  **mais cara** (incluindo foil), da mais cara **sem foil**, qual edição é a mais
+  cara, e o preço de **cada impressão** (edição + número), usado na leitura do
+  rodapé. Ficam de fora tokens, cartas só digitais (Arena/MTGO) e cartas numeradas
   (tipo "123/500"), que nunca aparecem em bulk.
 - **Reais:** cotação do dia pela [Frankfurter](https://frankfurter.dev) (dados do
   Banco Central Europeu), com a ExchangeRate-API de reserva. Fica guardada por 12h
   e aparece no rodapé.
 - **Atualização automática:** todo dia às 09:17 UTC, o GitHub Actions baixa o
   arquivo "Default Cards" do Scryfall (~80 MB compactado, ~120 mil impressões) e
-  gera um **índice enxuto** de ~2,4 MB (~34 mil cartas), publicado junto com o app.
+  gera um **índice enxuto** (~34 mil cartas, com os preços de cada impressão),
+  publicado junto com o app.
   Os celulares nunca baixam o arquivo grande. Isso respeita as regras de uso do
   Scryfall: uma requisição por dia, com User-Agent identificado.
 - **No aparelho:** o app guarda o índice no IndexedDB e procura uma versão nova a
@@ -209,11 +228,12 @@ public/icons/         ícones do app
 src/core/             TODA a lógica, sem interface (reaproveitável no Capacitor)
   camera/               câmera e geometria da área de detecção
   ocr/                  contrato do OCR, Tesseract.js, preparo da imagem, dica de linha
+  edition/              rodapé: onde fica, leitura da edição/número, preço da impressão
   matching/             corretor de nomes (busca aproximada)
   scanner/              laço de leitura contínua e orientação automática
   games/                um "provider" por jogo (hoje só magic/)
   prices/               índice de preços (IndexedDB) e cotação do dólar
-  alerts/               regras de alerta e cooldown por carta
+  alerts/               regras de alerta, cooldown e fluxo (alertar já ou esperar a edição)
   session/              sessão, resumo e exportação
   platform/             som, tela ligada e "feedback" (onde entrará a vibração)
   settings/, storage/   preferências e IndexedDB
@@ -236,6 +256,12 @@ app não muda.
     sozinho falhava em casos diferentes por causa da arte);
   - o terceiro lê só a linha que o app acha que é o nome, recortando as bordas
     pretas da carta. É ele que pega nomes curtos como "Moat" e "Opt".
+- **Edição pelo rodapé:** pela largura da barra do nome, o app calcula o tamanho e
+  a posição da carta, e daí onde fica o rodapé. Um quarto leitor lê esse trecho
+  (ampliado e com as cores invertidas, porque o texto é branco sobre preto), e o
+  resultado é comparado **só com as edições em que aquela carta existe**. Isso
+  tolera erros do OCR como O/0, I/1 e S/5. O rodapé só é lido quando o preço
+  depende da edição, para não perder velocidade.
 - **Corretor de nomes:** o texto lido é comparado com todos os nomes oficiais (busca
   por trigramas + distância de edição), então o OCR não precisa acertar todas as
   letras. Nomes curtos e médios exigem leitura mais confiável, para evitar alarmes
@@ -249,8 +275,11 @@ app não muda.
 
 - **Só nomes em inglês.** Cartas em outros idiomas não são reconhecidas (e não
   geram alarme falso).
-- **A edição da sua cópia não é identificada:** o preço mostrado é a faixa de
-  todas as edições daquele nome. Por isso existe o critério "Seguro" e o aviso azul.
+- **Edição só em cartas de 2015 em diante:** cartas mais antigas não têm código
+  no rodapé, então o app mostra a faixa de preço de todas as edições. O app
+  também não detecta se a carta é **foil** (por isso o aviso "confira se é foil").
+- O rodapé é pequeno: precisa de **boa luz e foco**, e a carta não pode estar
+  muito pequena no quadrado.
 - **Frames especiais** (borderless, showcase, nome em fundo escuro) podem ser
   lidos com menos confiabilidade.
 - **Preços do TCGplayer (EUA)** convertidos para reais. Não refletem o mercado
@@ -260,8 +289,6 @@ app não muda.
 
 ## 11. Próximos passos possíveis
 
-- Ler o código da edição e o número no rodapé da carta (cartas de 2015 em diante),
-  para mostrar o preço exato da cópia e exportar com edição (`1 Moat (LEG) 123`).
 - Reconhecer nomes em outros idiomas (português, japonês…).
 - Empacotar com Capacitor para ganhar vibração no iPhone.
 - Adicionar Pokémon TCG e Yu-Gi-Oh!.

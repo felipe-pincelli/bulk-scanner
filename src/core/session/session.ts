@@ -1,5 +1,5 @@
 import type { AlertLevel } from '../alerts/alertRules';
-import type { PriceInfo } from '../games/types';
+import type { PriceInfo, Printing } from '../games/types';
 import { kvGet, kvSet } from '../storage/kvStore';
 
 /**
@@ -17,6 +17,10 @@ export interface SessionEntry {
   /** Retrato do preço no momento da leitura (USD) e da cotação. */
   price: PriceInfo | null;
   usdBrl: number | null;
+  /** Impressão exata identificada pelo rodapé (se houver). */
+  printing?: Printing | null;
+  /** Código da edição identificada (mesmo sem a versão exata). */
+  set?: string | null;
 }
 
 export interface Session {
@@ -101,7 +105,14 @@ export function sessionToText(s: SessionSummary, startedAt: number): string {
       ? formatBrl(e.price?.maxUsd, e.usdBrl)
       : `${formatBrl(e.price?.minUsd, e.usdBrl)} a ${formatBrl(e.price?.maxUsd, e.usdBrl)}`;
   const line = (e: SessionEntry) =>
-    `• ${e.cardName}: ${range(e)}` + (e.price?.maxSetName ? ` (mais cara: ${e.price.maxSetName})` : '');
+    `• ${e.cardName}: ${range(e)}` +
+    (e.printing
+      ? ` (${e.printing.setName} #${e.printing.number})`
+      : e.set
+        ? ` (${e.price?.maxSetName || e.set.toUpperCase()})`
+        : e.price?.maxSetName
+          ? ` (mais cara: ${e.price.maxSetName})`
+          : '');
   const parts = [
     `Bulk Scanner — sessão de ${new Date(startedAt).toLocaleString('pt-BR')}`,
     `${s.scanned} cartas lidas · ${s.alerts.length} com alerta`,

@@ -10,7 +10,9 @@ import { TesseractEngine } from '../core/ocr/tesseractEngine';
 import { orientationLabel, rotateRegion } from '../core/scanner/orientation';
 import { Scanner, type ScanRead } from '../core/scanner/scanner';
 import { evaluateAlert, type AlertBasis, type AlertLevel, type AlertSettings } from '../core/alerts/alertRules';
-import { CardPresence } from '../core/alerts/cardPresence';
+import { AlertFlow } from '../core/alerts/alertFlow';
+import { priceForPrintings } from '../core/edition/editionPrice';
+import type { EditionResult } from '../core/edition/parseFooter';
 import { createWebFeedback } from '../core/platform/feedback';
 import { keepScreenOn } from '../core/platform/wakeLock';
 import { loadPref, savePref } from '../core/settings/settings';
@@ -52,6 +54,35 @@ const finishLabel: Record<PriceInfo['maxFinish'], string> = {
   '': '',
 };
 
+interface EditionView {
+  cardName: string;
+  result: EditionResult | null;
+  done: boolean;
+  rawText: string;
+}
+
+/** Linha "Edição: …" com o que foi lido no rodapé da carta. */
+function EditionLine({ view, hasPrintings }: { view: EditionView | null; hasPrintings: boolean }) {
+  if (!hasPrintings) return null;
+  const r = view?.result;
+  if (r?.printing) {
+    return (
+      <div className="edition ok">
+        Edição: <b>{r.printing.setName}</b> ({r.printing.set.toUpperCase()}) · nº {r.printing.number}
+      </div>
+    );
+  }
+  if (r?.set) {
+    return (
+      <div className="edition ok">
+        Edição: <b>{r.candidates[0]?.setName}</b> ({r.set.toUpperCase()}) · {r.candidates.length} versões
+      </div>
+    );
+  }
+  if (!view) return null;
+  return <div className="edition muted">{view.done ? 'Edição não identificada' : 'Lendo edição…'}</div>;
+}
+
 function PriceLine({ info, rate }: { info: PriceInfo | undefined; rate: Rate | null }) {
   if (!info || info.maxUsd === null) return <div className="price none">sem preço no Scryfall</div>;
   const showNonfoil = info.maxNonfoilUsd !== null && info.maxNonfoilUsd !== info.maxUsd;
@@ -77,7 +108,15 @@ export function App() {
   const scannerRef = useRef<Scanner | null>(null);
   const matcherRef = useRef<FuzzyMatcher | null>(null);
   const timesRef = useRef<number[]>([]);
-  const presenceRef = useRef(new CardPresence());
+  const footerPreviewRef = useRef<HTMLCanvasElement>(null);
+  const flowRef = useRef<AlertFlow | null>(null);
+  if (!flowRef.current) {
+    flowRef.current = new AlertFlow({
+      getPrice: (name) => pricesRef.current.get(name),
+      getRate: () => rateRef.current?.usdBrl ?? null,
+      getSettings: () => alertRef.current,
+    });
+  }
   const releaseWakeRef = useRef<(() => void) | null>(null);
   const pricesRef = useRef<Map<string, PriceInfo>>(new Map());
   const rateRef = useRef<Rate | null>(null);
@@ -105,6 +144,7 @@ export function App() {
   const [minInput, setMinInput] = useState(String(alertRef.current.minBrl));
   const [soundOn, setSoundOn] = useState(() => loadPref('sound', '1') === '1');
   const [flash, setFlash] = useState<{ level: AlertLevel; id: number } | null>(null);
+  const [editionView, setEditionView] = useState<EditionView | null>(null);
   const [wakeInfo, setWakeInfo] = useState<string>('');
 
   useEffect(() => feedback.setSoundEnabled(soundOn), [soundOn]);
@@ -174,17 +214,41 @@ export function App() {
     if (times.length > 10) times.shift();
     if (times.length > 1) setReadsPerSec(((times.length - 1) * 1000) / (now - times[0]));
 
-    // Carta nova na frente da câmera? (cooldown: a mesma carta só alerta uma vez)
-    const appeared = presenceRef.current.update(r.match?.cardName ?? null, r.confirmed);
-    if (appeared) {
-      const decision = evaluateAlert(pricesRef.current.get(appeared), rateRef.current?.usdBrl ?? null, alertRef.current);
-      if (decision.level !== 'none') {
-        feedback.alert(decision.level);
-        setFlash({ level: decision.level, id: performance.now() });
+    // Leitura do rodapé (edição): guarda o melhor resultado da carta atual.
+    if (r.edition) {
+      const e = r.edition;
+      setEditionView((prev) => {
+        const fresh = !prev || prev.cardName !== e.cardName || e.attempts === 1;
+        const best = fresh ? null : prev.result;
+        const better = e.result && (e.result.printing || (e.result.set && !best?.printing)) ? e.result : best;
+        return { cardName: e.cardName, result: better, done: e.done, rawText: e.rawText };
+      });
+      const fp = footerPreviewRef.current;
+      if (fp && e.crop) {
+        fp.width = e.crop.width;
+        fp.height = e.crop.height;
+        fp.getContext('2d')!.drawImage(e.crop, 0, 0);
       }
-      const price = pricesRef.current.get(appeared) ?? null;
+    }
+
+    // Cartas "fechadas" nesta leitura: alerta (uma vez por carta) e entra na sessão.
+    for (const ev of flowRef.current!.onRead(r)) {
+      if (ev.decision.level !== 'none') {
+        feedback.alert(ev.decision.level);
+        setFlash({ level: ev.decision.level, id: performance.now() });
+      }
       const usdBrl = rateRef.current?.usdBrl ?? null;
-      setSession((s) => addEntry(s, { cardName: appeared, at: Date.now(), ...decision, price, usdBrl }));
+      setSession((s) =>
+        addEntry(s, {
+          cardName: ev.cardName,
+          at: Date.now(),
+          ...ev.decision,
+          price: ev.price,
+          usdBrl,
+          printing: ev.printing,
+          set: ev.set,
+        }),
+      );
     }
   }, []);
 
@@ -252,6 +316,7 @@ export function App() {
           getZoneRect,
           onRead,
           autoRotate,
+          needsEdition: (name) => flowRef.current!.needsEdition(name),
         });
       }
       scannerRef.current.start();
@@ -276,7 +341,8 @@ export function App() {
   function startNewSession() {
     setSession(newSession());
     setShowSummary(false);
-    presenceRef.current.reset();
+    flowRef.current!.reset();
+    setEditionView(null);
   }
 
   function stop() {
@@ -285,7 +351,8 @@ export function App() {
     streamRef.current = null;
     releaseWakeRef.current?.();
     releaseWakeRef.current = null;
-    presenceRef.current.reset();
+    flowRef.current!.reset();
+    setEditionView(null);
     setWakeInfo('');
     setRunning(false);
   }
@@ -315,7 +382,15 @@ export function App() {
       ? 'confirmed'
       : 'tentative'
     : 'none';
-  const current = read?.match ? evaluateAlert(prices.get(read.match.cardName), rate?.usdBrl ?? null, alertSettings) : null;
+  // Preço da carta na tela: da edição identificada no rodapé, se houver.
+  const ed = read?.match && editionView?.cardName === read.match.cardName ? editionView : null;
+  const edPrice = ed?.result?.printing
+    ? priceForPrintings([ed.result.printing])
+    : ed?.result?.set
+      ? priceForPrintings(ed.result.candidates)
+      : null;
+  const shownPrice = read?.match ? (edPrice ?? prices.get(read.match.cardName)) : undefined;
+  const current = read?.match ? evaluateAlert(shownPrice, rate?.usdBrl ?? null, alertSettings) : null;
   const history = [...session.entries].reverse();
   const alertCount = history.filter((h) => h.level === 'yellow' || h.level === 'red').length;
 
@@ -392,10 +467,13 @@ export function App() {
         <div className={`result ${status}`}>
           {read?.match ? read.match.cardName : read ? '—' : ' '}
           {current && current.level !== 'none' && (
-            <span className={`badge ${current.level}`}>{levelLabel[current.level]}</span>
+            <span className={`badge ${current.level}`}>
+              {current.level === 'check' && ed?.result?.printing ? 'confira se é foil' : levelLabel[current.level]}
+            </span>
           )}
         </div>
-        {read?.match && <PriceLine info={prices.get(read.match.cardName)} rate={rate} />}
+        {read?.match && <EditionLine view={ed} hasPrintings={!!prices.get(read.match.cardName)?.printings} />}
+        {read?.match && <PriceLine info={shownPrice} rate={rate} />}
 
         <label className="min-row">
           Alertar a partir de
@@ -498,10 +576,12 @@ export function App() {
           <span>OCR: {read ? Math.round(read.ocrMs) : '–'} ms</span>
           <span>Correção: {read ? read.matchMs.toFixed(1) : '–'} ms</span>
           <span>{readsPerSec.toFixed(1)} leituras/s</span>
+          <span>Rodapé leu: <code>{editionView?.rawText.replace(/\s+/g, ' ').trim() || '…'}</code></span>
         </div>
 
         <div className="row">
           <canvas ref={previewRef} className="preview" aria-label="Recorte enviado ao OCR" />
+          <canvas ref={footerPreviewRef} className="preview" aria-label="Recorte do rodapé" />
           <label className="slider">
             Tamanho da área de detecção
             <input

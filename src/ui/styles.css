@@ -149,3 +149,6 @@ button.link { background: none; border: none; padding: 0; color: #8fb3ff; font-s
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
 }
 .banner button:first-of-type { margin-left: auto; }
+
+.edition { font-size: 14px; margin-top: -4px; }
+.edition.ok { color: #9fd3ff; }

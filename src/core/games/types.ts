@@ -17,6 +17,18 @@ export interface NameEntry {
   cardName: string;
 }
 
+/** Uma impressão específica (edição + número de colecionador), com preços em dólar. */
+export interface Printing {
+  /** Código da edição, minúsculo (ex.: "2x2"). Na carta aparece em maiúsculas. */
+  set: string;
+  setName: string;
+  /** Número de colecionador (ex.: "117", "117a", "★12"). */
+  number: string;
+  usd: number | null;
+  usdFoil: number | null;
+  usdEtched: number | null;
+}
+
 /** Faixa de preço de uma carta (todas as impressões), em dólares. */
 export interface PriceInfo {
   /** Impressão mais barata (sem foil; se só existir foil, o foil mais barato). */
@@ -29,6 +41,8 @@ export interface PriceInfo {
   maxSet: string;
   maxSetName: string;
   maxFinish: 'nonfoil' | 'foil' | 'etched' | '';
+  /** Todas as impressões com preço (só quando há 2 ou mais). */
+  printings?: Printing[];
 }
 
 /** Tudo o que o app precisa de um jogo: nomes (para o OCR) e preços. */

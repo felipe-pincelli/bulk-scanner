@@ -1,5 +1,7 @@
 import { subRect, type Rect } from '../camera/geometry';
-import type { GameProvider } from '../games/types';
+import type { GameProvider, Printing } from '../games/types';
+import { estimateCard, FOOTER_TEXT_H, footerRegion } from '../edition/footer';
+import { parseFooter, type EditionResult } from '../edition/parseFooter';
 import { normalize, type FuzzyMatcher, type MatchResult } from '../matching/fuzzyMatcher';
 import type { OcrEngine, OcrLine } from '../ocr/ocrEngine';
 import { cropForOcr, findTextRow } from '../ocr/preprocess';
@@ -15,7 +17,24 @@ import { correctionDeg, ORIENTATIONS, rotateRegion, type Orientation } from './o
  * mesmo quadro (revezando entre as três restantes). Assim, com as cartas sempre
  * na mesma posição, o custo é de uma leitura por quadro; ao mudar a posição,
  * a nova orientação é encontrada em poucos quadros.
+ *
+ * Edição: quando uma carta reconhecida precisa da edição para saber o preço
+ * (opção `needsEdition`), o laço também lê o rodapé da carta por algumas leituras,
+ * até identificar a edição ou desistir.
  */
+
+export interface EditionRead {
+  cardName: string;
+  /** Resultado da última tentativa (null = não deu para ler). */
+  result: EditionResult | null;
+  /** true quando a edição foi identificada OU as tentativas acabaram. */
+  done: boolean;
+  attempts: number;
+  /** Recorte do rodapé enviado ao OCR (diagnóstico). */
+  crop: HTMLCanvasElement | null;
+  /** Texto cru lido no rodapé (diagnóstico). */
+  rawText: string;
+}
 
 export interface ScanRead {
   /** Texto cru de todas as linhas lidas (para diagnóstico). */
@@ -30,6 +49,8 @@ export interface ScanRead {
   ocrMs: number;
   matchMs: number;
   crop: HTMLCanvasElement;
+  /** Presente nas leituras em que o rodapé foi lido. */
+  edition?: EditionRead;
 }
 
 export interface ScannerOptions {
@@ -45,7 +66,17 @@ export interface ScannerOptions {
   minScore?: number;
   readsToConfirm?: number;
   autoRotate?: boolean;
+  /**
+   * Devolve as impressões da carta se vale a pena ler a edição no rodapé (preço
+   * depende da edição); senão null.
+   */
+  needsEdition?: (cardName: string) => Printing[] | null;
 }
+
+/** Tentativas de ler o rodapé por carta (cada uma ~uma leitura extra). */
+const EDITION_ATTEMPTS = 4;
+/** Altura desejada (px) das letras do rodapé depois de ampliar. */
+const FOOTER_TEXT_PX = 26;
 
 /** Nomes curtos (< 5 letras) exigem leitura confiante — são fáceis de "inventar". */
 const SHORT_NAME = 5;
@@ -91,6 +122,10 @@ export class Scanner {
   private streak = 0;
   private goodOrientation: Orientation | null = null;
   private attempt = 0;
+  private footerCanvas = document.createElement('canvas');
+  /** Estado da leitura de edição da carta atual. */
+  private edition: { cardName: string; attempts: number; done: boolean } | null = null;
+  private absentReads = 0;
 
   constructor(private opts: ScannerOptions) {}
 
@@ -121,6 +156,36 @@ export class Scanner {
     return o;
   }
 
+  private async readEdition(
+    video: HTMLVideoElement,
+    zone: Rect,
+    orientation: Orientation,
+    hint: ReturnType<typeof findTextRow>,
+    scale: number,
+    printings: Printing[],
+  ): Promise<EditionRead> {
+    const state = this.edition!;
+    state.attempts++;
+    let result: EditionResult | null = null;
+    let crop: HTMLCanvasElement | null = null;
+    let rawText = '';
+    const card = estimateCard(hint, this.opts.game.nameSearchBand, scale * zone.w);
+    const region = card && footerRegion(card);
+    if (card && region) {
+      const rect = subRect(zone, rotateRegion(region, orientation));
+      const footerScale = Math.min(4, FOOTER_TEXT_PX / (FOOTER_TEXT_H * card.h * zone.h));
+      crop = cropForOcr(video, rect, this.footerCanvas, {
+        rotateDeg: correctionDeg(orientation),
+        scale: footerScale,
+        invertIfDark: true,
+      });
+      rawText = await this.opts.engine.readFooter(crop);
+      result = parseFooter(rawText, printings);
+    }
+    if (result?.printing || state.attempts >= EDITION_ATTEMPTS) state.done = true;
+    return { cardName: state.cardName, result, done: state.done, attempts: state.attempts, crop, rawText };
+  }
+
   private async loop() {
     const { minIntervalMs = 250, minScore = 0.75, readsToConfirm = 2, game } = this.opts;
     while (this.running) {
@@ -137,6 +202,8 @@ export class Scanner {
         let crop = this.canvas;
         let ocrMs = 0;
         let matchMs = 0;
+        let usedHint: ReturnType<typeof findTextRow> = null;
+        let usedScale = 1;
         for (const o of plan) {
           const band = subRect(zone, rotateRegion(game.nameSearchBand, o));
           // Escala para a faixa do nome ficar com ~NAME_BAND_PX de altura.
@@ -151,6 +218,8 @@ export class Scanner {
           ocrMs += t1 - t0;
           matchMs += performance.now() - t1;
           orientation = o;
+          usedHint = hint;
+          usedScale = scale;
           if (best && best.score >= minScore) break;
         }
         const match = best && best.score >= minScore ? best : null;
@@ -159,6 +228,20 @@ export class Scanner {
         if (match && match.cardName === this.lastName) this.streak++;
         else this.streak = match ? 1 : 0;
         this.lastName = match?.cardName ?? null;
+
+        // ---- Edição (rodapé) ----
+        this.absentReads = match ? 0 : this.absentReads + 1;
+        if (this.absentReads >= 4) this.edition = null; // a carta saiu da câmera
+        let edition: EditionRead | undefined;
+        if (match && this.edition?.cardName !== match.cardName) {
+          this.edition = { cardName: match.cardName, attempts: 0, done: false };
+        }
+        const printings = match && this.opts.needsEdition?.(match.cardName);
+        if (match && printings && this.edition && !this.edition.done) {
+          const t0 = performance.now();
+          edition = await this.readEdition(video, zone, orientation, usedHint, usedScale, printings);
+          ocrMs += performance.now() - t0;
+        }
 
         this.opts.onRead({
           rawText: lines.map((l) => l.text).join(' | '),
@@ -169,6 +252,7 @@ export class Scanner {
           ocrMs,
           matchMs,
           crop,
+          edition,
         });
       }
       const wait = minIntervalMs - (performance.now() - started);

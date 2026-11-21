@@ -19,7 +19,10 @@ async function copyText(text: string) {
 
 export function ExportPanel({ entries }: { entries: SessionEntry[] }) {
   const [scope, setScope] = useState<ExportScope>(() => loadPref('exportScope', 'alerts') as ExportScope);
-  const [format, setFormat] = useState<ExportFormat>(() => (loadPref('exportFormat', 'text') === 'csv' ? 'csv' : 'text'));
+  const [format, setFormat] = useState<ExportFormat>(() => {
+    const f = loadPref('exportFormat', 'textWithSet');
+    return f === 'csv' || f === 'text' ? f : 'textWithSet';
+  });
   const [done, setDone] = useState('');
 
   const count = countExport(entries, scope);
@@ -79,15 +82,17 @@ export function ExportPanel({ entries }: { entries: SessionEntry[] }) {
               savePref('exportFormat', e.target.value);
             }}
           >
-            <option value="text">Lista de texto — Moxfield, Archidekt, MTGGoldfish, TappedOut, ManaBox…</option>
+            <option value="textWithSet">Lista com edição — Moxfield, Archidekt, ManaBox</option>
+            <option value="text">Lista simples (só nome) — qualquer site (MTGGoldfish, TappedOut…)</option>
             <option value="csv">CSV — planilha (Excel, Google Sheets) com preços</option>
           </select>
         </label>
         <textarea className="export-preview" readOnly value={content.text} rows={Math.min(8, Math.max(3, count + 1))} />
         <p className="muted small">
-          {format === 'text'
-            ? 'No site, procure "Import" / "Importar" e cole a lista. Ex.: Moxfield → Collection ou um deck novo → Import.'
-            : 'Abra o arquivo .csv no Excel, Google Sheets ou Numbers.'}{' '}
+          {format === 'csv'
+            ? 'Abra o arquivo .csv no Excel, Google Sheets ou Numbers.'
+            : 'No site, procure "Import" / "Importar" e cole a lista. Ex.: Moxfield → Collection ou um deck novo → Import.'}{' '}
+          {format === 'textWithSet' && 'Cartas sem edição identificada saem só com o nome. '}
           {count} {count === 1 ? 'carta' : 'cartas'}.
         </p>
         <div className="row">

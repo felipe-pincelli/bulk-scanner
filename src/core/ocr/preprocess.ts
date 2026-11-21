@@ -8,15 +8,15 @@ import type { Rect } from '../camera/geometry';
  * - converte para tons de cinza e estica o contraste.
  * Texto claro em fundo escuro é tratado pelo próprio Tesseract (ele tenta inverter).
  */
-const PAD = 10;
+export const PAD = 10;
 
 export function cropForOcr(
   source: HTMLVideoElement | HTMLCanvasElement,
   rect: Rect,
   out: HTMLCanvasElement,
-  opts: { rotateDeg: 0 | 90 | 180 | 270; scale: number },
+  opts: { rotateDeg: 0 | 90 | 180 | 270; scale: number; invertIfDark?: boolean },
 ): HTMLCanvasElement {
-  const { rotateDeg, scale } = opts;
+  const { rotateDeg, scale, invertIfDark } = opts;
   const sw = Math.max(1, Math.round(rect.w * scale));
   const sh = Math.max(1, Math.round(rect.h * scale));
   const sideways = rotateDeg === 90 || rotateDeg === 270;
@@ -50,8 +50,14 @@ export function cropForOcr(
   for (let acc = 0; lo < 255 && (acc += hist[lo]) < total * 0.02; lo++);
   for (let acc = 0; hi > 0 && (acc += hist[hi]) < total * 0.02; hi--);
   const range = Math.max(1, hi - lo);
+  // Texto claro em fundo escuro (ex.: rodapé da carta, branco na borda preta):
+  // inverte para ficar texto escuro em fundo claro, que o Tesseract lê melhor.
+  let sum = 0;
+  for (let i = 0; i < px.length; i += 4) sum += px[i];
+  const invert = invertIfDark && sum / total < lo + range * 0.45;
   for (let i = 0; i < px.length; i += 4) {
-    const v = ((px[i] - lo) * 255) / range;
+    let v = ((px[i] - lo) * 255) / range;
+    if (invert) v = 255 - v;
     px[i] = px[i + 1] = px[i + 2] = v;
     px[i + 3] = 255;
   }
@@ -74,6 +80,8 @@ export interface LineHint {
   top: number;
   width: number;
   height: number;
+  /** true se encontrou a barra clara do nome (então left/width medem a barra). */
+  barFound: boolean;
 }
 
 export function findTextRow(canvas: HTMLCanvasElement, textPx: number): LineHint | null {
@@ -141,6 +149,6 @@ export function findTextRow(canvas: HTMLCanvasElement, textPx: number): LineHint
       bestStart = start;
     }
   }
-  if (bestLen < textPx * 4) return { left: 0, top, width: w, height }; // barra escura: usa tudo
-  return { left: bestStart, top, width: bestLen, height };
+  if (bestLen < textPx * 4) return { left: 0, top, width: w, height, barFound: false }; // barra escura: usa tudo
+  return { left: bestStart, top, width: bestLen, height, barFound: true };
 }

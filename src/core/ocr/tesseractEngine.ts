@@ -6,7 +6,8 @@ import type { LineHint } from './preprocess';
  * OCR com Tesseract.js rodando em "workers" (processos separados do navegador),
  * para a tela continuar fluida enquanto lê.
  *
- * Usamos TRÊS leitores em paralelo:
+ * Usamos TRÊS leitores em paralelo para o nome (e um quarto, separado, para o
+ * rodapé com a edição):
  * - dois leem a faixa inteira, cada um com um jeito diferente de separar as
  *   linhas (cada modo sozinho falhava em casos diferentes, por causa da arte);
  * - um lê só a linha que o app acha que é o nome ("dica"), no modo "uma linha" —
@@ -25,6 +26,8 @@ const LINE_WORKER = 2;
 
 export class TesseractEngine implements OcrEngine {
   private workers: Worker[] = [];
+  /** Leitor separado para o rodapé (letras pequenas, números e códigos). */
+  private footerWorker: Worker | null = null;
   private progress: ((msg: string) => void) | undefined;
 
   constructor(
@@ -32,19 +35,31 @@ export class TesseractEngine implements OcrEngine {
     private whitelist: string,
   ) {}
 
+  private create(): Promise<Worker> {
+    return createWorker('eng', OEM.LSTM_ONLY, {
+      workerPath: `${this.assetsUrl}worker.min.js`,
+      corePath: this.assetsUrl,
+      langPath: this.assetsUrl,
+      // Carrega o worker pelo endereço normal (e não como "blob"), para o
+      // service worker conseguir entregá-lo do cache quando estiver offline.
+      workerBlobURL: false,
+      logger: (m) => this.progress?.(`${m.status} ${Math.round((m.progress ?? 0) * 100)}%`),
+    });
+  }
+
   async init(onProgress?: (msg: string) => void) {
     this.progress = onProgress;
+    const footer = this.create().then(async (w) => {
+      await w.setParameters({
+        tessedit_pageseg_mode: PSM.SINGLE_BLOCK,
+        tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789/•*.- ',
+        user_defined_dpi: '300',
+      });
+      return w;
+    });
     this.workers = await Promise.all(
       MODES.map(async (mode) => {
-        const worker = await createWorker('eng', OEM.LSTM_ONLY, {
-          workerPath: `${this.assetsUrl}worker.min.js`,
-          corePath: this.assetsUrl,
-          langPath: this.assetsUrl,
-          // Carrega o worker pelo endereço normal (e não como "blob"), para o
-          // service worker conseguir entregá-lo do cache quando estiver offline.
-          workerBlobURL: false,
-          logger: (m) => this.progress?.(`${m.status} ${Math.round((m.progress ?? 0) * 100)}%`),
-        });
+        const worker = await this.create();
         await worker.setParameters({
           tessedit_pageseg_mode: mode,
           tessedit_char_whitelist: this.whitelist,
@@ -54,6 +69,7 @@ export class TesseractEngine implements OcrEngine {
         return worker;
       }),
     );
+    this.footerWorker = await footer;
     // Depois de carregado, para de reportar progresso (senão dispara a cada leitura).
     this.progress = undefined;
   }
@@ -95,8 +111,15 @@ export class TesseractEngine implements OcrEngine {
     return lines;
   }
 
+  async readFooter(image: HTMLCanvasElement): Promise<string> {
+    if (!this.footerWorker) return '';
+    const { data } = await this.footerWorker.recognize(image);
+    return data.text;
+  }
+
   async dispose() {
-    await Promise.all(this.workers.map((w) => w.terminate()));
+    await Promise.all([...this.workers, this.footerWorker].map((w) => w?.terminate()));
     this.workers = [];
+    this.footerWorker = null;
   }
 }

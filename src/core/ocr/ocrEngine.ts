@@ -19,5 +19,7 @@ export interface OcrEngine {
    * `lineHint`: faixa onde provavelmente está o nome (lida também como linha única).
    */
   readLines(image: HTMLCanvasElement, lineHint?: LineHint | null): Promise<OcrLine[]>;
+  /** Lê o texto pequeno do rodapé da carta (número de colecionador, edição). */
+  readFooter(image: HTMLCanvasElement): Promise<string>;
   dispose(): Promise<void>;
 }

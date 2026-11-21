@@ -1,4 +1,4 @@
-import type { CardIndex, GameProvider, NameEntry, PriceInfo } from '../types';
+import type { CardIndex, GameProvider, NameEntry, PriceInfo, Printing } from '../types';
 
 /** Formato gravado por scripts/build-data.ts. */
 interface MagicIndexFile {
@@ -7,8 +7,18 @@ interface MagicIndexFile {
   pricesUpdatedAt: string;
   builtAt: string;
   usdBrl: number | null;
-  rows: [string, number | null, number | null, number | null, string, string, PriceInfo['maxFinish']][];
+  rows: [
+    string,
+    number | null,
+    number | null,
+    number | null,
+    string,
+    string,
+    PriceInfo['maxFinish'],
+    [string, string, number | null, number | null, number | null][]?,
+  ][];
   aliases: Record<string, string>;
+  sets?: Record<string, string>;
 }
 
 export const magicProvider: GameProvider = {
@@ -28,8 +38,17 @@ export const magicProvider: GameProvider = {
     const entries: NameEntry[] = [];
     const prices = new Map<string, PriceInfo>();
 
-    for (const [name, minUsd, maxNonfoilUsd, maxUsd, maxSet, maxSetName, maxFinish] of file.rows) {
-      prices.set(name, { minUsd, maxNonfoilUsd, maxUsd, maxSet, maxSetName, maxFinish });
+    const sets = file.sets ?? {};
+    for (const [name, minUsd, maxNonfoilUsd, maxUsd, maxSet, maxSetName, maxFinish, rawPrintings] of file.rows) {
+      const printings: Printing[] | undefined = rawPrintings?.map(([set, number, usd, usdFoil, usdEtched]) => ({
+        set,
+        setName: sets[set] ?? set.toUpperCase(),
+        number,
+        usd,
+        usdFoil,
+        usdEtched,
+      }));
+      prices.set(name, { minUsd, maxNonfoilUsd, maxUsd, maxSet, maxSetName, maxFinish, printings });
       entries.push({ matchText: name, cardName: name });
       // Cartas de duas faces/split ("Fire // Ice"): na carta física aparece só
       // o nome de uma face, então cada face também vira uma entrada.

@@ -27,7 +27,13 @@ function EntryRow({ e, onRemove }: { e: SessionEntry; onRemove: () => void }) {
         </span>
       </div>
       <div className="entry-sub">
-        {p?.maxSetName ? `Edição não identificada · mais cara: ${p.maxSetName}${finish[p.maxFinish] ?? ''}` : 'Sem preço'}
+        {e.printing
+          ? `${e.printing.setName} (${e.printing.set.toUpperCase()}) · nº ${e.printing.number}`
+          : e.set
+            ? `${p?.maxSetName || e.set.toUpperCase()} (${e.set.toUpperCase()}) · versão não identificada`
+            : p?.maxSetName
+              ? `Edição não identificada · mais cara: ${p.maxSetName}${finish[p.maxFinish] ?? ''}`
+              : 'Sem preço'}
         <button className="link" onClick={onRemove} aria-label={`Remover ${e.cardName}`}>
           remover
         </button>
@@ -107,7 +113,8 @@ export function SessionSummaryView({
           <details>
             <summary>Confira a edição ({s.checks.length})</summary>
             <p className="muted small">
-              Só alguma edição específica destas cartas vale o mínimo. Olhe o símbolo da edição na carta.
+              Só alguma edição específica (ou a versão foil) destas cartas vale o mínimo. Olhe o símbolo da edição e
+              se a carta é foil.
             </p>
             <ol className="entries">
               {s.checks.map((e) => (

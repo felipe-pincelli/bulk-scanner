@@ -31,7 +31,12 @@ export type IndexRow = [
   maxSet: string, // edição da impressão mais cara (código, ex.: "lea")
   maxSetName: string,
   maxFinish: 'nonfoil' | 'foil' | 'etched' | '',
+  // Cada impressão com preço: [edição, nº de colecionador, usd, usd foil, usd etched].
+  // Só para cartas com 2+ impressões com preço (com uma só, a faixa já é exata).
+  printings?: PrintingRow[],
 ];
+
+export type PrintingRow = [set: string, number: string, usd: number | null, foil: number | null, etched: number | null];
 
 interface ScryfallCard {
   name: string;
@@ -42,6 +47,7 @@ interface ScryfallCard {
   promo_types?: string[];
   set: string;
   set_name: string;
+  collector_number?: string;
   prices?: { usd?: string | null; usd_foil?: string | null; usd_etched?: string | null };
 }
 
@@ -154,6 +160,8 @@ async function main() {
   const { chunks, updatedAt } = await openCards();
 
   const rows = new Map<string, IndexRow>();
+  const printings = new Map<string, PrintingRow[]>();
+  const sets: Record<string, string> = {}; // código → nome da edição
   const aliases: Record<string, string> = {};
   let total = 0;
 
@@ -174,6 +182,12 @@ async function main() {
     const usd = num(card.prices?.usd);
     const foil = num(card.prices?.usd_foil);
     const etched = num(card.prices?.usd_etched);
+    if (usd !== null || foil !== null || etched !== null) {
+      sets[card.set] = card.set_name;
+      let list = printings.get(card.name);
+      if (!list) printings.set(card.name, (list = []));
+      list.push([card.set, card.collector_number ?? '', usd, foil, etched]);
+    }
 
     if (usd !== null) {
       if (row[1] === null || usd < row[1]) row[1] = usd;
@@ -194,6 +208,13 @@ async function main() {
   }
   // Cartas que só existem em foil: o "mais barato" é o foil mais barato.
   for (const row of rows.values()) if (row[1] === null && row[3] !== null) row[1] = row[3];
+  // Impressões individuais (para identificar a edição pelo rodapé da carta).
+  let printingCount = 0;
+  for (const [name, list] of printings) {
+    if (list.length < 2) continue;
+    rows.get(name)![7] = list;
+    printingCount += list.length;
+  }
 
   // Trava de segurança: nunca publicar um índice vazio/quebrado.
   const minNames = process.argv.includes('--file') ? 1 : 20000;
@@ -203,7 +224,7 @@ async function main() {
 
   const usdBrl = await fetchUsdBrl();
   const index = {
-    version: 1,
+    version: 2,
     game: 'magic',
     source: 'Scryfall (preços TCGplayer em USD)',
     pricesUpdatedAt: updatedAt,
@@ -211,6 +232,7 @@ async function main() {
     usdBrl,
     rows: [...rows.values()].sort((a, b) => a[0].localeCompare(b[0])),
     aliases,
+    sets,
   };
   const json = JSON.stringify(index);
   writeFileSync('public/data/magic-index.json', json);
@@ -222,6 +244,7 @@ async function main() {
   const withPrice = index.rows.filter((r) => r[3] !== null).length;
   console.log(
     `Impressões lidas: ${total} · nomes: ${rows.size} (${withPrice} com preço) · apelidos: ${Object.keys(aliases).length}` +
+      ` · impressões no índice: ${printingCount} · edições: ${Object.keys(sets).length}` +
       ` · arquivo: ${(json.length / 1e6).toFixed(1)} MB · USD→BRL: ${usdBrl ?? 'indisponível'}`,
   );
 }
