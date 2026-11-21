@@ -1,0 +1,20 @@
+name: Probe Pokemon APIs
+on:
+  push:
+    branches: [probe-pokemon]
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: pokemontcg.io v2
+        run: |
+          curl -s -m 60 -w '\nHTTP %{http_code} %{time_total}s\n' 'https://api.pokemontcg.io/v2/cards?q=name:pikachu&pageSize=2&select=id,name,number,supertype,set,tcgplayer,cardmarket' | head -c 3500; echo
+          curl -s -m 60 -o /dev/null -w 'totalCount page: HTTP %{http_code}\n' 'https://api.pokemontcg.io/v2/cards?pageSize=1'
+          curl -s -m 60 'https://api.pokemontcg.io/v2/cards?pageSize=1&select=id' | head -c 300; echo
+      - name: tcgdex
+        run: |
+          curl -s -m 60 -w '\nHTTP %{http_code}\n' 'https://api.tcgdex.net/v2/en/cards/swsh3-136' | head -c 3000; echo
+          curl -s -m 60 -w '\nHTTP %{http_code}\n' 'https://api.tcgdex.net/v2/en/cards?name=pikachu' | head -c 600; echo
+      - name: pokemon-tcg-data (GitHub)
+        run: |
+          curl -s -m 60 -w '\nHTTP %{http_code}\n' 'https://raw.githubusercontent.com/PokemonTCG/pokemon-tcg-data/master/sets/en.json' | head -c 800; echo
