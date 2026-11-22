@@ -4,7 +4,7 @@ import { estimateCard, footerRegion, ghostCard } from '../edition/footer';
 import { parseFooter, type EditionResult } from '../edition/parseFooter';
 import { normalize, type FuzzyMatcher, type MatchResult } from '../matching/fuzzyMatcher';
 import type { OcrEngine, OcrLine } from '../ocr/ocrEngine';
-import { cropForOcr, findTextRow } from '../ocr/preprocess';
+import { cropForOcr, findTextRow, PAD } from '../ocr/preprocess';
 import { correctionDeg, ORIENTATIONS, rotateRegion, type Orientation } from './orientation';
 
 /**
@@ -93,10 +93,20 @@ const MEDIUM_MIN_SCORE = 0.88;
  * - nome médio precisa de semelhança alta;
  * - um nome longo bem reconhecido sempre ganha de um curto.
  */
-function pickBest(lines: OcrLine[], matcher: FuzzyMatcher | null, minScore: number): MatchResult | null {
+function pickBest(lines: OcrLine[], matcher: FuzzyMatcher | null, minScore: number, joinLines = false): MatchResult | null {
   let bestLong: MatchResult | null = null;
   let bestShort: MatchResult | null = null;
-  for (const line of lines) {
+  // Nome em duas linhas (Lorcana): também testa cada linha junto com a seguinte.
+  const candidates: OcrLine[] = joinLines
+    ? [
+        ...lines,
+        ...lines.slice(0, -1).map((l, i) => ({
+          text: `${l.text} ${lines[i + 1].text}`,
+          confidence: Math.min(l.confidence, lines[i + 1].confidence),
+        })),
+      ]
+    : lines;
+  for (const line of candidates) {
     const m = matcher?.match(line.text) ?? null;
     if (!m) continue;
     const len = normalize(m.matchText).length;
@@ -123,6 +133,9 @@ export class Scanner {
   private goodOrientation: Orientation | null = null;
   private attempt = 0;
   private footerCanvas = document.createElement('canvas');
+  private subCanvas = document.createElement('canvas');
+  private subCanvas2 = document.createElement('canvas');
+  private subCanvas3 = document.createElement('canvas');
   /** Estado da leitura de edição da carta atual. */
   private edition: { cardName: string; attempts: number; done: boolean } | null = null;
   private absentReads = 0;
@@ -226,8 +239,66 @@ export class Scanner {
           // Altura aproximada das letras no recorte (~45% da faixa do nome).
           const hint = findTextRow(crop, NAME_BAND_PX * 0.45, game.nameHintSpan, game.nameIsTallestText);
           lines = await this.opts.engine.readLines(crop, hint);
+          // Lorcana: a versão ("Brave Little Tailor") fica na linha logo abaixo do
+          // nome, muitas vezes em texto claro sobre uma fita colorida, que os
+          // leitores da faixa inteira não pegam. Lê essa linha à parte e junta.
+          if (game.nameJoinsLines && hint) {
+            const nameLine = lines.find((l) => l.fromHint);
+            // A linha da versão é a próxima linha de texto abaixo do nome (achada
+            // junto com a dica). Largura: a área útil do jogo — a versão pode ser
+            // mais longa que o nome (ex.: "ELSA" / "Spirit of Winter").
+            const span = game.nameHintSpan ?? [0, 1];
+            const usable = crop.width - 2 * PAD;
+            const below = hint.below
+              ? cropForOcr(
+                  crop,
+                  { x: PAD + span[0] * usable, y: hint.below.top, w: (span[1] - span[0]) * usable, h: hint.below.height },
+                  this.subCanvas,
+                  { rotateDeg: 0, scale: 1 },
+                )
+              : null;
+            const row = below ? { top: 0, height: below.height } : null;
+            // Lê nas duas polaridades (texto escuro ou claro na fita), com preto e
+            // branco local (fita, texto e fundo têm tons diferentes). As duas leituras
+            // vão para o corretor de nomes, que fica com a que bater com um nome real.
+            const versions: OcrLine[] = [];
+            let versionImg: HTMLCanvasElement | null = null;
+            if (row) {
+              const rect = { x: 0, y: row.top, w: below!.width, h: row.height };
+              for (const [invert, canvas] of [
+                [false, this.subCanvas2],
+                [true, this.subCanvas3],
+              ] as const) {
+                const img = cropForOcr(below!, rect, canvas, { rotateDeg: 0, scale: 1, invert, localBinarizePx: row.height * 0.2 }); // vizinhança ~ altura das letras
+                const read = await this.opts.engine.readSingleLine(img);
+                if (read) {
+                  versions.push(read);
+                  versionImg = img;
+                }
+              }
+            }
+            const version = versions[0] ?? null;
+            // Diagnóstico (desligado no uso normal): permite inspecionar os recortes.
+            (globalThis as { __bsDebug?: (k: string, v: unknown) => void }).__bsDebug?.('version', {
+              below: below?.toDataURL(),
+              row,
+              img: versionImg?.toDataURL(),
+              text: versions.map((v) => v.text).join(' / '),
+            });
+            if (nameLine) {
+              for (const v of versions) {
+                // As bordas da fita viram "1", "I", "|" no começo/fim: tira os
+                // caracteres soltos das pontas.
+                const words = v.text.split(/\s+/);
+                while (words.length && words[0].length <= 1) words.shift();
+                while (words.length && words[words.length - 1].length <= 1) words.pop();
+                if (!words.length) continue;
+                lines = [...lines, { text: `${nameLine.text} ${words.join(' ')}`, confidence: Math.min(nameLine.confidence, v.confidence) }];
+              }
+            }
+          }
           const t1 = performance.now();
-          best = pickBest(lines, this.opts.matcher, minScore);
+          best = pickBest(lines, this.opts.matcher, minScore, game.nameJoinsLines);
           ocrMs += t1 - t0;
           matchMs += performance.now() - t1;
           orientation = o;

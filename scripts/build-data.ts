@@ -6,8 +6,8 @@
  *   idiomas). Preços: das impressões em inglês. Nomes em português: viram
  *   "apelidos" que apontam para o nome em inglês (ex.: "Relâmpago" → "Lightning Bolt"). Regras do Scryfall (https://scryfall.com/docs/api/bulk-data):
  *   usar os arquivos em massa, enviar User-Agent e Accept, no máximo 1x por dia.
- * - Pokémon, One Piece e Yu-Gi-Oh!: TCGCSV (cópia diária dos dados do TCGplayer) —
- *   ver scripts/pokemon.ts, scripts/onepiece.ts e scripts/yugioh.ts.
+ * - Pokémon, One Piece, Yu-Gi-Oh! e Lorcana: TCGCSV (cópia diária dos dados do
+ *   TCGplayer) — ver scripts/pokemon.ts, onepiece.ts, yugioh.ts e lorcana.ts.
  * - Cotação USD → BRL (reserva caso o app não consiga buscar ao vivo).
  *
  * Uso: npm run data                       (todos os jogos)
@@ -21,6 +21,7 @@ import { IndexBuilder } from './lib/indexBuilder';
 import { buildPokemon } from './pokemon';
 import { buildOnePiece } from './onepiece';
 import { buildYugioh } from './yugioh';
+import { buildLorcana } from './lorcana';
 
 const HEADERS = {
   'User-Agent': 'BulkScanner/0.2 (personal project)',
@@ -246,7 +247,9 @@ async function main() {
   mkdirSync('public/data', { recursive: true });
   const gameArg = process.argv.indexOf('--game');
   const only = gameArg > 0 ? process.argv[gameArg + 1] : null;
-  const testing = ['--file', '--pokemon-fixture', '--onepiece-fixture', '--yugioh-fixture'].some((f) => process.argv.includes(f));
+  const testing = ['--file', '--pokemon-fixture', '--onepiece-fixture', '--yugioh-fixture', '--lorcana-fixture'].some((f) =>
+    process.argv.includes(f),
+  );
   const usdBrl = await fetchUsdBrl();
   console.log(`USD→BRL: ${usdBrl ?? 'indisponível'}`);
 
@@ -322,6 +325,25 @@ async function main() {
       } catch (e) {
         if (only === 'yugioh') throw e;
         console.warn('[yugioh] ÍNDICE NÃO GERADO:', (e as Error).message);
+      }
+    }
+  }
+
+  // Lorcana: se falhar, avisa mas não derruba os outros jogos.
+  if (!only || only === 'lorcana') {
+    if (!testing || process.argv.includes('--lorcana-fixture')) {
+      try {
+        const b = new IndexBuilder();
+        b.keepAllPrintings = true;
+        const pricesUpdatedAt = await buildLorcana(b);
+        b.write(
+          'public/data/lorcana-index.json',
+          { game: 'lorcana', source: 'TCGCSV / TCGplayer (preços em USD)', pricesUpdatedAt, usdBrl },
+          testing ? 1 : 300,
+        );
+      } catch (e) {
+        if (only === 'lorcana') throw e;
+        console.warn('[lorcana] ÍNDICE NÃO GERADO:', (e as Error).message);
       }
     }
   }

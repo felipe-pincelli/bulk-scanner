@@ -117,6 +117,14 @@ export class TesseractEngine implements OcrEngine {
     await Promise.all(this.workers.map((w) => w.setParameters({ tessedit_char_whitelist: whitelist })));
   }
 
+  async readSingleLine(image: HTMLCanvasElement): Promise<OcrLine | null> {
+    const w = this.workers[LINE_WORKER];
+    if (!w) return null;
+    const { data } = await w.recognize(image);
+    const text = data.text.trim();
+    return text ? { text, confidence: data.confidence, fromHint: true } : null;
+  }
+
   async readFooter(image: HTMLCanvasElement): Promise<string> {
     if (!this.footerWorker) return '';
     const { data } = await this.footerWorker.recognize(image);

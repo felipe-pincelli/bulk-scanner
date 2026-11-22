@@ -95,6 +95,8 @@ export interface GameProvider {
   nameHintSpan?: [number, number];
   /** O nome é o texto de letras mais altas da faixa de busca (ex.: One Piece). */
   nameIsTallestText?: boolean;
+  /** O nome ocupa duas linhas seguidas (Lorcana: personagem + versão). */
+  nameJoinsLines?: boolean;
   /** Caracteres que podem aparecer num nome (ajuda o OCR a não "inventar" símbolos). */
   nameCharWhitelist: string;
   /** Arquivo do índice, relativo à pasta do site (gerado por scripts/build-data.ts). */

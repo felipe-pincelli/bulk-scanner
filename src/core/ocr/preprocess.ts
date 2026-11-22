@@ -18,6 +18,8 @@ export function cropForOcr(
     rotateDeg: 0 | 90 | 180 | 270;
     scale: number;
     invertIfDark?: boolean;
+    /** Inverte sempre (texto claro → escuro), sem decidir pela média. */
+    invert?: boolean;
     /**
      * Preto e branco LOCAL (cada ponto comparado com a vizinhança): para recortes
      * com fundos de tons diferentes (ex.: rodapé do Yu-Gi-Oh!, moldura cinza +
@@ -27,7 +29,7 @@ export function cropForOcr(
     localBinarizePx?: number;
   },
 ): HTMLCanvasElement {
-  const { rotateDeg, scale, invertIfDark, localBinarizePx } = opts;
+  const { rotateDeg, scale, invertIfDark, invert: forceInvert, localBinarizePx } = opts;
   const sw = Math.max(1, Math.round(rect.w * scale));
   const sh = Math.max(1, Math.round(rect.h * scale));
   const sideways = rotateDeg === 90 || rotateDeg === 270;
@@ -65,7 +67,7 @@ export function cropForOcr(
   // inverte para ficar texto escuro em fundo claro, que o Tesseract lê melhor.
   let sum = 0;
   for (let i = 0; i < px.length; i += 4) sum += px[i];
-  const invert = invertIfDark && sum / total < lo + range * 0.45;
+  const invert = forceInvert || (invertIfDark && sum / total < lo + range * 0.45);
   for (let i = 0; i < px.length; i += 4) {
     let v = ((px[i] - lo) * 255) / range;
     if (invert) v = 255 - v;
@@ -125,6 +127,11 @@ export interface LineHint {
   height: number;
   /** true se encontrou a barra clara do nome (então left/width medem a barra). */
   barFound: boolean;
+  /**
+   * Próxima linha de texto logo abaixo (só no modo "mais alto"): na Lorcana, a
+   * versão do personagem ("Brave Little Tailor"), em pixels do recorte.
+   */
+  below?: { top: number; height: number };
 }
 
 export function findTextRow(
@@ -164,10 +171,14 @@ export function findTextRow(
   }
   if (best < win * 2) return null; // quase nenhuma borda: não há texto
   let tallestH = 0;
+  let below: { top: number; height: number } | undefined;
   if (tallest) {
     // Blocos de linhas seguidas com texto; o mais alto é o de letras maiores.
-    const thr = Math.max(...rowScore) * 0.2;
+    // Limite baixo: nomes curtos ("ELSA", "Nami") têm poucas bordas por linha,
+    // bem menos que uma linha cheia de texto de regras.
+    const thr = Math.max(4, Math.max(...rowScore) * 0.12);
     let bestH = 0;
+    const blocks: { start: number; end: number }[] = [];
     for (let y = 0; y < h; ) {
       if (rowScore[y] < thr) {
         y++;
@@ -183,12 +194,34 @@ export function findTextRow(
         } else gap++;
       }
       const blockH = end - start + 1;
+      blocks.push({ start, end });
       if (blockH > bestH && blockH >= win * 0.5) {
         bestH = blockH;
         bestY = Math.round((start + end) / 2 - win / 2);
       }
     }
     tallestH = bestH;
+    // Próxima linha abaixo do nome, se estiver perto (não mais longe que ~1,6×
+    // a altura das letras do nome).
+    // Entre os blocos logo abaixo, fica com o que tem mais "cara de texto" (mais
+    // bordas), ignorando faixas finas (bordas de moldura, pedaços de ícone).
+    const nameEnd = Math.round(bestY + win / 2 + bestH / 2);
+    let next: { start: number; end: number } | undefined;
+    let nextScore = 0;
+    for (const b of blocks) {
+      if (b.start <= nameEnd - 1 || b.start - nameEnd > bestH * 1.6 || b.end - b.start + 1 < bestH * 0.3) continue;
+      let sc = 0;
+      for (let y = b.start; y <= b.end; y++) sc += rowScore[y];
+      if (sc > nextScore) {
+        nextScore = sc;
+        next = b;
+      }
+    }
+    if (next) {
+      const bh = next.end - next.start + 1;
+      const top = Math.max(0, Math.round(next.start - bh * 0.35));
+      below = { top, height: Math.min(h - top, Math.round(bh * 1.7)) };
+    }
   }
   // Faixa um pouco maior que as letras (pega acentos e partes de baixo).
   // (No modo "mais alto", a faixa acompanha a altura medida das letras, para não
@@ -233,9 +266,26 @@ export function findTextRow(
     if (darkSpan) {
       const left = Math.round(PAD + darkSpan[0] * (w - 2 * PAD));
       const right = Math.round(PAD + darkSpan[1] * (w - 2 * PAD));
-      return { left, top, width: right - left, height, barFound: false };
+      return { left, top, width: right - left, height, barFound: false, below };
     }
-    return { left: 0, top, width: w, height, barFound: false };
+    return { left: 0, top, width: w, height, barFound: false, below };
   }
-  return { left: bestStart, top, width: bestLen, height, barFound: true };
+  return { left: bestStart, top, width: bestLen, height, barFound: true, below };
+}
+
+/** Inverte as cores de um recorte (texto claro ↔ escuro), em um canvas de saída. */
+export function invertCanvas(src: HTMLCanvasElement, out: HTMLCanvasElement): HTMLCanvasElement {
+  out.width = src.width;
+  out.height = src.height;
+  const ctx = out.getContext('2d', { willReadFrequently: true })!;
+  ctx.drawImage(src, 0, 0);
+  const img = ctx.getImageData(0, 0, out.width, out.height);
+  const px = img.data;
+  for (let i = 0; i < px.length; i += 4) {
+    px[i] = 255 - px[i];
+    px[i + 1] = 255 - px[i + 1];
+    px[i + 2] = 255 - px[i + 2];
+  }
+  ctx.putImageData(img, 0, 0);
+  return out;
 }

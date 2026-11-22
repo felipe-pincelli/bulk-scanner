@@ -79,13 +79,21 @@ export class AlertFlow {
     return brl >= min * 5 ? 2 : brl >= min ? 1 : 0;
   }
 
-  /** Ambíguo: a versão mais barata e a mais cara caem em níveis de alerta diferentes. */
+  /**
+   * Vale ler o rodapé quando:
+   * - a versão mais barata e a mais cara caem em níveis de alerta diferentes; ou
+   * - a carta já alerta e o preço varia muito entre as versões (3× ou mais) —
+   *   ex.: Lorcana comum R$ 52 × Enchanted R$ 2.600. O alerta sai na hora e o
+   *   preço é corrigido quando a edição é lida (modo "refinar").
+   */
   private isAmbiguous(raw: PriceInfo): boolean {
     if (!this.deps.getRate()) return false;
     const s = this.deps.getSettings();
     const price = this.adjust(raw);
     const maxUsd = s.includeFoil ? price.maxUsd : (price.maxNonfoilUsd ?? price.maxUsd);
-    return this.tier(price.minUsd) !== this.tier(maxUsd);
+    const lo = this.tier(price.minUsd);
+    if (lo !== this.tier(maxUsd)) return true;
+    return lo >= 1 && (maxUsd ?? 0) >= (price.minUsd ?? 0) * 3;
   }
 
   /** Preço desta cópia, com o acabamento/condição do lote (se informados). */
