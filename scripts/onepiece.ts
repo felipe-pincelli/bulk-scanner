@@ -11,7 +11,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { IndexBuilder } from './lib/indexBuilder';
-import { findCategoryId, priceValue, productNumber, tcgGroups, type Price } from './lib/tcgcsv';
+import { cleanTcgName, findCategoryId, priceValue, productNumber, tcgGroups, type Price } from './lib/tcgcsv';
 
 type Variant = 'base' | 'parallel' | 'special';
 
@@ -61,6 +61,7 @@ export function cleanOnePieceName(name: string): string {
       return isPartOfName(name, parenAt, inner) ? all : '';
     })
     .replace(/\s+-\s+[A-Z]{1,4}\d{0,3}-\d{2,3}[a-z]?\s*$/, '') // " - OP01-016"
+    .replace(/\s+\(/g, '(') // "Mr.1 (Daz.Bonez)" e "Mr.1(Daz.Bonez)" são a mesma carta
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -84,6 +85,7 @@ export async function buildOnePiece(builder: IndexBuilder): Promise<string> {
   let cards = 0;
   const markSamples = new Set<string>();
   const keptParens = new Set<string>();
+  const diffSamples = new Set<string>();
   let skippedPrize = 0;
   for await (const { group: g, set, products, pricesByProduct } of tcgGroups(categoryId, fixture)) {
     groups++;
@@ -102,6 +104,9 @@ export async function buildOnePiece(builder: IndexBuilder): Promise<string> {
         continue;
       }
       if (/\(/.test(name) && keptParens.size < 8) keptParens.add(name);
+      // Diagnóstico: nomes em que a limpeza nova difere da antiga (só o começo).
+      const old = cleanTcgName(prod.name);
+      if (old !== name && !/\(/.test(name)) diffSamples.add(`${prod.name} → ${name} (antes: ${old})`);
       let entry = byNumber.get(number);
       if (!entry) byNumber.set(number, (entry = { name, base: [], parallel: [], special: [] }));
       if (variant === 'base') entry.name = name;
@@ -122,6 +127,7 @@ export async function buildOnePiece(builder: IndexBuilder): Promise<string> {
   console.log(`[onepiece] exemplos de versões: ${[...markSamples].join(' | ')}`);
   console.log(`[onepiece] nomes com parênteses mantidos: ${[...keptParens].join(' | ')}`);
   console.log(`[onepiece] cartas de premiação ignoradas (≥ US$ ${MAX_PRICE}): ${skippedPrize}`);
+  console.log(`[onepiece] limpeza diferente da antiga: ${diffSamples.size} · ${[...diffSamples].slice(0, 12).join(' | ')}`);
   for (const name of ['Nami', 'Monkey.D.Luffy', 'Roronoa Zoro', 'Shanks', 'Yamato']) {
     const r = builder.rows.get(name);
     if (r) console.log(`  ${name}: US$ ${r[1]} – ${r[3]} · ${builder.printings.get(name)?.length ?? 0} impressões · mais cara: ${r[5]} (${r[6]})`);
