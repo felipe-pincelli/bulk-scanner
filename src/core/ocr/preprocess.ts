@@ -14,9 +14,20 @@ export function cropForOcr(
   source: HTMLVideoElement | HTMLCanvasElement,
   rect: Rect,
   out: HTMLCanvasElement,
-  opts: { rotateDeg: 0 | 90 | 180 | 270; scale: number; invertIfDark?: boolean },
+  opts: {
+    rotateDeg: 0 | 90 | 180 | 270;
+    scale: number;
+    invertIfDark?: boolean;
+    /**
+     * Preto e branco LOCAL (cada ponto comparado com a vizinhança): para recortes
+     * com fundos de tons diferentes (ex.: rodapé do Yu-Gi-Oh!, moldura cinza +
+     * caixa branca), onde um limite único para a imagem toda apagaria o texto.
+     * Valor = altura aproximada das letras, em px.
+     */
+    localBinarizePx?: number;
+  },
 ): HTMLCanvasElement {
-  const { rotateDeg, scale, invertIfDark } = opts;
+  const { rotateDeg, scale, invertIfDark, localBinarizePx } = opts;
   const sw = Math.max(1, Math.round(rect.w * scale));
   const sh = Math.max(1, Math.round(rect.h * scale));
   const sideways = rotateDeg === 90 || rotateDeg === 270;
@@ -61,8 +72,40 @@ export function cropForOcr(
     px[i] = px[i + 1] = px[i + 2] = v;
     px[i + 3] = 255;
   }
+  if (localBinarizePx) localBinarize(px, w, h, localBinarizePx);
   ctx.putImageData(img, PAD, PAD);
   return out;
+}
+
+/**
+ * Binarização adaptativa (estilo Bradley): um ponto vira preto se for bem mais
+ * escuro que a média da vizinhança. Usa "imagem integral" para calcular as
+ * médias rápido. Espera texto escuro em fundo claro (já invertido, se preciso).
+ */
+function localBinarize(px: Uint8ClampedArray, w: number, h: number, textPx: number) {
+  const r = Math.max(4, Math.round(textPx)); // vizinhança ~2× a altura das letras
+  const integral = new Float64Array((w + 1) * (h + 1));
+  for (let y = 0; y < h; y++) {
+    let row = 0;
+    for (let x = 0; x < w; x++) {
+      row += px[(y * w + x) * 4];
+      integral[(y + 1) * (w + 1) + x + 1] = integral[y * (w + 1) + x + 1] + row;
+    }
+  }
+  const out = new Uint8ClampedArray(w * h);
+  for (let y = 0; y < h; y++) {
+    const y0 = Math.max(0, y - r);
+    const y1 = Math.min(h, y + r + 1);
+    for (let x = 0; x < w; x++) {
+      const x0 = Math.max(0, x - r);
+      const x1 = Math.min(w, x + r + 1);
+      const sum =
+        integral[y1 * (w + 1) + x1] - integral[y0 * (w + 1) + x1] - integral[y1 * (w + 1) + x0] + integral[y0 * (w + 1) + x0];
+      const mean = sum / ((x1 - x0) * (y1 - y0));
+      out[y * w + x] = px[(y * w + x) * 4] < mean * 0.82 ? 0 : 255;
+    }
+  }
+  for (let i = 0; i < out.length; i++) px[i * 4] = px[i * 4 + 1] = px[i * 4 + 2] = out[i];
 }
 
 /**

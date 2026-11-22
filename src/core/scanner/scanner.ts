@@ -190,6 +190,7 @@ export class Scanner {
         rotateDeg: correctionDeg(orientation),
         scale: footerScale,
         invertIfDark: true,
+        localBinarizePx: FOOTER_TEXT_PX,
       });
       rawText = await this.opts.engine.readFooter(crop);
       result = parseFooter(rawText, printings);

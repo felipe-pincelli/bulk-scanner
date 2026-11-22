@@ -1,0 +1,126 @@
+/**
+ * Índice de Yu-Gi-Oh! TCG a partir do TCGCSV (cópia diária do TCGplayer).
+ *
+ * Cada código impresso ("LOB-EN001") vira UMA impressão com três preços:
+ *   unlimited (campo usd) · 1ª edição (campo foil) · raridade especial (campo etched)
+ * "Raridade especial" = versões com o mesmo código em raridade mais alta
+ * (Starlight, Ghost, Quarter Century, Collector's…), que o TCGplayer lista como
+ * produtos separados, com a raridade entre parênteses.
+ *
+ * Nomes em português: YGOPRODeck (https://ygoprodeck.com/api-guide/) — lista em
+ * inglês e em português com o mesmo id da carta (2 consultas). Se falhar, segue sem.
+ *
+ * Para testar sem internet: --yugioh-fixture arquivo.json (formato do TCGCSV +
+ * { ygopro: { en: [...], pt: [...] } } opcional).
+ */
+import { readFileSync } from 'node:fs';
+import { IndexBuilder } from './lib/indexBuilder';
+import { findCategoryId, getJson, priceValue, productNumber, tcgGroups, type Price } from './lib/tcgcsv';
+
+/** Raridades "especiais" que aparecem entre parênteses no nome do produto. */
+const SPECIAL =
+  /starlight|ghost|quarter century|collector|platinum|prismatic|ultimate|secret|gold|10000|pharaoh|duel terminal|premium|holographic|parallel|alternate art|alt art|ultra rare|super rare|rare/i;
+
+export function cleanYugiohName(name: string): string {
+  return name
+    .replace(/\s*\[[^\]]*\]/g, '')
+    .replace(/\s*\(([^)]*)\)/g, (all: string, inner: string) => (SPECIAL.test(inner) || /^\s*[\d\s-]+\s*$/.test(inner) ? '' : all))
+    .replace(/\s+-\s+[A-Z0-9]{2,5}-[A-Z]{0,2}\d{2,3}[a-z]?\s*$/, '') // " - LOB-EN001"
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export const isSpecialProduct = (name: string) =>
+  [...name.matchAll(/\(([^)]*)\)/g)].some((m) => SPECIAL.test(m[1]));
+
+/** Preços de um produto: unlimited (ou limited) e 1ª edição. */
+function productPrices(prices: Price[]): { unl: number | null; first: number | null } {
+  let unl: number | null = null;
+  let first: number | null = null;
+  for (const p of prices) {
+    const v = priceValue(p);
+    if (v == null) continue;
+    if (/1st/i.test(p.subTypeName)) first = first === null ? v : Math.max(first, v);
+    else unl = unl === null ? v : Math.min(unl, v); // Unlimited / Limited / Normal
+  }
+  return { unl, first };
+}
+
+/** Cartas de premiação (troféus) nunca aparecem em bulk e distorcem o máximo. */
+const MAX_PRICE = 10000;
+
+export async function buildYugioh(builder: IndexBuilder): Promise<string> {
+  const fixtureArg = process.argv.indexOf('--yugioh-fixture');
+  const fixture = fixtureArg > 0 ? JSON.parse(readFileSync(process.argv[fixtureArg + 1], 'utf8')) : null;
+  const categoryId = fixture ? 0 : await findCategoryId(/yu-?gi-?oh/i);
+  console.log(`[yugioh] categoria TCGCSV: ${categoryId}`);
+
+  let groups = 0;
+  let cards = 0;
+  let skippedPrize = 0;
+  for await (const { group: g, set, products, pricesByProduct } of tcgGroups(categoryId, fixture)) {
+    groups++;
+    const byNumber = new Map<string, { name: string; unl: number[]; first: number[]; special: number[] }>();
+    for (const prod of products) {
+      const number = productNumber(prod);
+      if (!number) continue; // produtos selados
+      const name = cleanYugiohName(prod.name);
+      if (!name) continue;
+      const { unl, first } = productPrices(pricesByProduct.get(prod.productId) ?? []);
+      if ((unl ?? 0) >= MAX_PRICE || (first ?? 0) >= MAX_PRICE) {
+        skippedPrize++;
+        continue;
+      }
+      let e = byNumber.get(number);
+      if (!e) byNumber.set(number, (e = { name, unl: [], first: [], special: [] }));
+      if (isSpecialProduct(prod.name)) {
+        const v = Math.max(unl ?? 0, first ?? 0);
+        if (v) e.special.push(v);
+      } else {
+        e.name = name;
+        if (unl !== null) e.unl.push(unl);
+        if (first !== null) e.first.push(first);
+      }
+      cards++;
+    }
+    for (const [number, e] of byNumber) {
+      const all = [...e.unl, ...e.first, ...e.special];
+      const usd = e.unl.length ? Math.min(...e.unl) : e.first.length ? Math.min(...e.first) : all.length ? Math.min(...all) : null;
+      const first = e.first.length ? Math.max(...e.first) : null;
+      const special = e.special.length ? Math.max(...e.special) : null;
+      builder.addName(e.name);
+      builder.addPrinting(e.name, set, g.name, number, usd, first, special);
+    }
+  }
+  console.log(`[yugioh] coleções: ${groups} · produtos de cartas: ${cards} · premiação ignorada: ${skippedPrize}`);
+  await addPortugueseNames(builder, fixture?.ygopro);
+  for (const name of ['Blue-Eyes White Dragon', 'Dark Magician', 'Ash Blossom & Joyous Spring', 'Pot of Greed']) {
+    const r = builder.rows.get(name);
+    if (r) console.log(`  ${name}: US$ ${r[1]} – ${r[3]} · ${builder.printings.get(name)?.length ?? 0} impressões · mais cara: ${r[5]} (${r[6]})`);
+  }
+  if (!fixture && cards < 10000) throw new Error(`só ${cards} produtos de cartas (esperado > 10000)`);
+  return new Date().toISOString();
+}
+
+type YgoCard = { id: number; name: string };
+
+/** Nomes em português pelo YGOPRODeck (mesmo id em inglês e português). */
+async function addPortugueseNames(builder: IndexBuilder, fixture?: { en: YgoCard[]; pt: YgoCard[] }) {
+  try {
+    const url = 'https://db.ygoprodeck.com/api/v7/cardinfo.php';
+    const en: YgoCard[] = fixture?.en ?? (await getJson<{ data: YgoCard[] }>(url)).data;
+    const pt: YgoCard[] = fixture?.pt ?? (await getJson<{ data: YgoCard[] }>(`${url}?language=pt`)).data;
+    const enById = new Map(en.map((c) => [c.id, c.name]));
+    let added = 0;
+    for (const c of pt) {
+      const english = enById.get(c.id);
+      if (!english || !c.name || c.name === english) continue;
+      if (!builder.rows.has(english) || builder.rows.has(c.name)) continue;
+      if (builder.aliases[c.name] === undefined) added++;
+      builder.aliases[c.name] = english;
+    }
+    console.log(`[yugioh] nomes em português: ${added} (de ${pt.length} cartas no YGOPRODeck)`);
+  } catch (e) {
+    console.warn('[yugioh] sem nomes em português hoje:', (e as Error).message);
+  }
+}

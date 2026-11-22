@@ -84,13 +84,19 @@ export function parseFooter(text: string, printings: Printing[]): EditionResult 
     return full ? fullNumbers.has(full) : numbers.has(stripZeros(p.number));
   };
 
-  // --- Código com hífen (One Piece: "OP11-041", "ST01-001", "P-001"): já inclui a
-  // coleção e identifica a carta sozinho. Aceita espaços em volta do hífen e letras
-  // trocadas pelo OCR ("0P11-04I").
+  // --- Código com hífen (One Piece "OP11-041", Yu-Gi-Oh! "LOB-EN001"): já inclui a
+  // coleção e identifica a carta sozinho. Aceita espaços em volta do hífen, letras
+  // trocadas pelo OCR ("0P11-04I") e ignora o idioma do código ("LOB-PT001" =
+  // "LOB-EN001": mesma carta, impressa em português).
+  const codeKey = (prefix: string, rest: string) => `${fold(prefix)}-${fold(rest.replace(/^[A-Za-z]{1,2}(?=[0-9OIlSBZ|]{2,3}$)/, ''))}`;
   const codes = new Set<string>();
-  for (const m of text.matchAll(/([A-Za-z0-9|]{1,5})\s?-\s?([0-9OIlSBZ|]{2,3})/g)) codes.add(fold(`${m[1]}-${m[2]}`));
+  for (const m of text.matchAll(/([A-Za-z0-9|]{1,5})\s?-\s?([A-Za-z]{0,2}[0-9OIlSBZ|]{2,3})/g)) codes.add(codeKey(m[1], m[2]));
+  const printedKey = (n: string) => {
+    const i = n.indexOf('-');
+    return codeKey(n.slice(0, i), n.slice(i + 1));
+  };
   if (codes.size && printings.some((p) => p.number.includes('-'))) {
-    const byCode = printings.filter((p) => p.number.includes('-') && codes.has(fold(p.number)));
+    const byCode = printings.filter((p) => p.number.includes('-') && codes.has(printedKey(p.number)));
     if (byCode.length && byCode.every((p) => p.set === byCode[0].set)) {
       return { printing: byCode.length === 1 ? byCode[0] : null, set: byCode[0].set, candidates: byCode };
     }

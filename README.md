@@ -1,7 +1,7 @@
 # Bulk Scanner
 
 App para caçar cartas valiosas no meio do bulk de **Magic: The Gathering**,
-**Pokémon TCG** e **One Piece Card Game**.
+**Pokémon TCG**, **One Piece Card Game** e **Yu-Gi-Oh! TCG**.
 Você aponta a câmera, passa as cartas uma após a outra e o app avisa, com som e um
 flash de cor na tela inteira, quando aparece uma carta que vale mais que o mínimo
 que você definiu. Não é um app de coleção: o foco é velocidade.
@@ -52,7 +52,7 @@ disponível → Atualizar"**. Nada muda sozinho no meio de uma sessão.
 
 ## 2. Como usar
 
-0. Escolha o **jogo** no topo (Magic, Pokémon ou One Piece). A escolha fica salva. O app
+0. Escolha o **jogo** no topo (Magic, Pokémon, One Piece ou Yu-Gi-Oh!). A escolha fica salva. O app
    carrega só os dados daquele jogo e cada jogo tem a sua própria sessão. Para
    trocar, pare a sessão primeiro.
 1. Toque em **Iniciar sessão** e permita o uso da câmera. Esse toque também libera
@@ -190,6 +190,16 @@ faixa preta) e lê o código no canto inferior direito, que já identifica a col
 A exportação "com código" sai no formato `1xOP11-041`, usado pelos montadores de
 deck e simuladores de One Piece. Só cartas em inglês.
 
+**Yu-Gi-Oh!:** preços do TCGCSV (TCGplayer); nomes em português do
+[YGOPRODeck](https://ygoprodeck.com). Cada código impresso (`LOB-EN001`) vira uma
+impressão com três preços — **unlimited / 1ª edição / rara especial** (Starlight,
+Ghost, Quarter Century… com o mesmo código) — e você marca qual é no resumo ou por
+lote. O app lê o nome no topo (o círculo do atributo à direita é ignorado) e o
+código logo abaixo da arte, à direita; cartas em português (`LOB-PT001`) caem na
+mesma impressão. Os rodapés de todos os jogos passam por um "preto e branco local"
+(cada ponto comparado com a vizinhança), que evita que fundos de tons diferentes
+apaguem o texto pequeno.
+
 **Magic:**
 
 - **Fonte (Magic):** [Scryfall](https://scryfall.com), com os preços do TCGplayer em dólar.
@@ -276,6 +286,7 @@ scripts/              rodam fora do navegador
   build-data.ts         gera os índices de todos os jogos em public/data/ (roda no GitHub)
   pokemon.ts            Pokémon: TCGCSV → índice
   onepiece.ts           One Piece: TCGCSV → índice (versões do mesmo código juntas)
+  yugioh.ts             Yu-Gi-Oh!: TCGCSV → índice + nomes em português (YGOPRODeck)
   lib/tcgcsv.ts         acesso ao TCGCSV (comum a Pokémon e One Piece)
   lib/indexBuilder.ts   formato comum dos índices
   copy-tesseract.ts     copia o motor de OCR → public/tesseract/
@@ -287,7 +298,7 @@ src/core/             TODA a lógica, sem interface (reaproveitável no Capacito
   edition/              rodapé: onde fica, leitura da edição/número, preço da impressão
   matching/             corretor de nomes (busca aproximada)
   scanner/              laço de leitura contínua e orientação automática
-  games/                um "provider" por jogo (magic/, pokemon/, onepiece/) + formato do índice
+  games/                um "provider" por jogo (magic/, pokemon/, onepiece/, yugioh/) + formato do índice
   prices/               índice de preços (IndexedDB) e cotação do dólar
   alerts/               regras de alerta, cooldown e fluxo (alertar já ou esperar a edição)
   session/              sessão, resumo e exportação
@@ -296,7 +307,7 @@ src/core/             TODA a lógica, sem interface (reaproveitável no Capacito
 src/ui/               interface (React): App, resumo, exportação, aviso de versão
 ```
 
-**Adicionar outro jogo** (ex.: Yu-Gi-Oh!): criar `src/core/games/<jogo>/`
+**Adicionar outro jogo** (ex.: Lorcana): criar `src/core/games/<jogo>/`
 implementando o contrato `GameProvider` (`src/core/games/types.ts`), registrá-lo
 em `games/registry.ts` e gerar o índice dele em `scripts/` com o `IndexBuilder`.
 
@@ -350,7 +361,7 @@ app não muda.
 
 - Reconhecer nomes em outros idiomas (espanhol, japonês…).
 - Empacotar com Capacitor para ganhar vibração no iPhone.
-- Adicionar Yu-Gi-Oh! (YGOPRODeck).
+- Exportação YDK (Yu-Gi-Oh!) e outros formatos específicos.
 
 ---
 

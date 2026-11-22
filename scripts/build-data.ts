@@ -6,8 +6,8 @@
  *   idiomas). Preços: das impressões em inglês. Nomes em português: viram
  *   "apelidos" que apontam para o nome em inglês (ex.: "Relâmpago" → "Lightning Bolt"). Regras do Scryfall (https://scryfall.com/docs/api/bulk-data):
  *   usar os arquivos em massa, enviar User-Agent e Accept, no máximo 1x por dia.
- * - Pokémon e One Piece: TCGCSV (cópia diária dos dados do TCGplayer) — ver
- *   scripts/pokemon.ts e scripts/onepiece.ts.
+ * - Pokémon, One Piece e Yu-Gi-Oh!: TCGCSV (cópia diária dos dados do TCGplayer) —
+ *   ver scripts/pokemon.ts, scripts/onepiece.ts e scripts/yugioh.ts.
  * - Cotação USD → BRL (reserva caso o app não consiga buscar ao vivo).
  *
  * Uso: npm run data                       (todos os jogos)
@@ -20,6 +20,7 @@ import { createGunzip } from 'node:zlib';
 import { IndexBuilder } from './lib/indexBuilder';
 import { buildPokemon } from './pokemon';
 import { buildOnePiece } from './onepiece';
+import { buildYugioh } from './yugioh';
 
 const HEADERS = {
   'User-Agent': 'BulkScanner/0.2 (personal project)',
@@ -245,7 +246,7 @@ async function main() {
   mkdirSync('public/data', { recursive: true });
   const gameArg = process.argv.indexOf('--game');
   const only = gameArg > 0 ? process.argv[gameArg + 1] : null;
-  const testing = ['--file', '--pokemon-fixture', '--onepiece-fixture'].some((f) => process.argv.includes(f));
+  const testing = ['--file', '--pokemon-fixture', '--onepiece-fixture', '--yugioh-fixture'].some((f) => process.argv.includes(f));
   const usdBrl = await fetchUsdBrl();
   console.log(`USD→BRL: ${usdBrl ?? 'indisponível'}`);
 
@@ -302,6 +303,25 @@ async function main() {
       } catch (e) {
         if (only === 'onepiece') throw e;
         console.warn('[onepiece] ÍNDICE NÃO GERADO:', (e as Error).message);
+      }
+    }
+  }
+
+  // Yu-Gi-Oh!: se falhar, avisa mas não derruba os outros jogos.
+  if (!only || only === 'yugioh') {
+    if (!testing || process.argv.includes('--yugioh-fixture')) {
+      try {
+        const b = new IndexBuilder();
+        b.keepAllPrintings = true; // o código ("LOB-EN001") identifica a impressão
+        const pricesUpdatedAt = await buildYugioh(b);
+        b.write(
+          'public/data/yugioh-index.json',
+          { game: 'yugioh', source: 'TCGCSV / TCGplayer (preços em USD)', pricesUpdatedAt, usdBrl },
+          testing ? 1 : 5000,
+        );
+      } catch (e) {
+        if (only === 'yugioh') throw e;
+        console.warn('[yugioh] ÍNDICE NÃO GERADO:', (e as Error).message);
       }
     }
   }
