@@ -151,10 +151,13 @@ async function buildMagic(builder: IndexBuilder): Promise<string> {
   const { chunks, updatedAt } = await openCards();
   const started = Date.now();
   let total = 0;
-  const ptAliases = new Map<string, string>(); // nome em português → nome em inglês
-  // Cartas que só existem em outro idioma (ex.: promos japonesas): guarda a
-  // primeira impressão com preço, usada se não houver nenhuma em inglês.
-  const foreignOnly = new Map<string, ScryfallCard>();
+  // Nome em português → quantas impressões usam esse nome para cada carta em
+  // inglês. (Às vezes cartas diferentes receberam o mesmo nome em português.)
+  const ptNames = new Map<string, Map<string, number>>();
+  // Impressões só em outro idioma (ex.: artes alternativas japonesas): entram se
+  // não houver a mesma edição+número em inglês.
+  const foreign = new Map<string, ScryfallCard>(); // "set|número" → impressão com preço
+  const englishKeys = new Set<string>();
   for await (const raw of streamJsonArray(chunks)) {
     const card = JSON.parse(raw) as ScryfallCard;
     total++;
@@ -168,12 +171,19 @@ async function buildMagic(builder: IndexBuilder): Promise<string> {
       if (card.lang === 'pt') {
         // Nome impresso em português (cartas de duas faces: o de cada face).
         const printed = [card.printed_name, ...(card.card_faces ?? []).map((f) => f.printed_name)];
-        for (const n of printed) if (n && n !== card.name && !n.includes(' // ')) ptAliases.set(n, card.name);
+        for (const n of printed) {
+          if (!n || n === card.name || n.includes(' // ')) continue;
+          if (!ptNames.has(n)) ptNames.set(n, new Map());
+          const counts = ptNames.get(n)!;
+          counts.set(card.name, (counts.get(card.name) ?? 0) + 1);
+        }
       }
       const p = card.prices;
-      if ((p?.usd || p?.usd_foil || p?.usd_etched) && !foreignOnly.has(card.name)) foreignOnly.set(card.name, card);
+      const key = `${card.set}|${card.collector_number}`;
+      if ((p?.usd || p?.usd_foil || p?.usd_etched) && !foreign.has(key)) foreign.set(key, card);
       continue;
     }
+    englishKeys.add(`${card.set}|${card.collector_number}`);
 
     builder.addName(card.name);
     // "Godzilla Series" e similares: nome impresso diferente do oficial.
@@ -188,20 +198,36 @@ async function buildMagic(builder: IndexBuilder): Promise<string> {
       num(card.prices?.usd_etched),
     );
   }
-  // Cartas sem nenhuma impressão em inglês: usa a estrangeira com preço.
-  for (const [name, card] of foreignOnly) {
-    if (builder.printings.has(name)) continue;
-    builder.addName(name);
-    builder.addPrinting(name, card.set, card.set_name, card.collector_number ?? '', num(card.prices?.usd), num(card.prices?.usd_foil), num(card.prices?.usd_etched));
+  // Impressões que só existem em outro idioma (sem a mesma edição+número em inglês).
+  let foreignAdded = 0;
+  for (const [key, card] of foreign) {
+    if (englishKeys.has(key)) continue;
+    builder.addName(card.name);
+    builder.addPrinting(card.name, card.set, card.set_name, card.collector_number ?? '', num(card.prices?.usd), num(card.prices?.usd_foil), num(card.prices?.usd_etched));
+    foreignAdded++;
   }
-  // Apelidos em português (sem sobrescrever nomes oficiais em inglês).
+  // Apelidos em português (sem sobrescrever nomes oficiais em inglês). Se o mesmo
+  // nome em português foi usado para cartas diferentes, fica a carta que usa esse
+  // nome em mais impressões.
   let ptCount = 0;
-  for (const [pt, en] of ptAliases) {
-    if (builder.rows.has(pt) || !builder.rows.has(en)) continue;
-    builder.aliases[pt] = en;
+  let conflicts = 0;
+  const conflictSamples: string[] = [];
+  for (const [pt, counts] of ptNames) {
+    if (builder.rows.has(pt)) continue;
+    const ranked = [...counts.entries()].filter(([en]) => builder.rows.has(en)).sort((a, b) => b[1] - a[1]);
+    if (!ranked.length) continue;
+    if (ranked.length > 1) {
+      conflicts++;
+      if (conflictSamples.length < 5) conflictSamples.push(`${pt}: ${ranked.map(([en, n]) => `${en} (${n})`).join(', ')}`);
+    }
+    builder.aliases[pt] = ranked[0][0];
     ptCount++;
   }
-  console.log(`[magic] impressões lidas: ${total} em ${Math.round((Date.now() - started) / 1000)} s · nomes em português: ${ptCount}`);
+  console.log(
+    `[magic] impressões lidas: ${total} em ${Math.round((Date.now() - started) / 1000)} s · só em outro idioma: ${foreignAdded}` +
+      ` · nomes em português: ${ptCount} (${conflicts} com mais de uma carta)`,
+  );
+  for (const c of conflictSamples) console.log(`  conflito → ${c}`);
   for (const pt of ['Relâmpago', 'Anel Solar', 'Fosso', 'Elfos de Llanowar', 'Contramágica']) {
     if (builder.aliases[pt]) console.log(`  ${pt} → ${builder.aliases[pt]}`);
   }
