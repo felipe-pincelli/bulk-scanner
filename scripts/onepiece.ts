@@ -18,6 +18,8 @@ type Variant = 'base' | 'parallel' | 'special';
 /** Parênteses que são marcação do TCGplayer (versão/numeração), e não parte do nome. */
 const NUMBERING = /^\s*(\d+|[A-Z]{1,4}\d{0,3}-\d{2,3}[a-z]?)\s*$/i; // "(060)", "(OP17-119)"
 const PARALLEL = /parallel|alternate art|alt[ .-]?art/i;
+/** Premiação/eventos: marcação mesmo colada no nome ("Issho(Winner)"). */
+const EVENT = /winner|participant|judge|champion|finalist|\bpack\b|promo|prize|red bull|top \d+|\bvol\b|event|store|tournament/i;
 
 /**
  * Parêntese que faz parte do NOME impresso (e não é marcação de versão):
@@ -26,7 +28,7 @@ const PARALLEL = /parallel|alternate art|alt[ .-]?art/i;
  * O resto ("(Manga)", "(Heroine Leader)", "(Kentaro Yabuki)") é versão.
  */
 function isPartOfName(full: string, index: number, inner: string): boolean {
-  if (NUMBERING.test(inner) || PARALLEL.test(inner)) return false;
+  if (NUMBERING.test(inner) || PARALLEL.test(inner) || EVENT.test(inner)) return false;
   const attached = index > 0 && full[index - 1] !== ' ';
   // Ponto colado entre letras ("Daz.Bonez") é nome; "Vol. 1" é marcação.
   return attached || /[A-Za-z]\.[A-Za-z]/.test(inner) || /!!|\.\.\./.test(inner);
