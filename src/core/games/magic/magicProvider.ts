@@ -12,6 +12,16 @@ export const magicProvider: GameProvider = {
   // pouco deslocada, menor ou maior que a moldura.
   nameSearchBand: { x: 0, y: 0, w: 1, h: 0.28 },
   nameCharWhitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz ',-",
+  // Cartas em escrita não latina: identificadas pelo rodapé ("NEO • JA" + número),
+  // que é latino em cartas de 2015 em diante.
+  lotLanguages: [
+    { id: 'latin', label: 'inglês/português', footerOnly: false },
+    { id: 'ja', label: 'japonês', footerOnly: true },
+    { id: 'ph', label: 'phyrexiano', footerOnly: true },
+    { id: 'ko', label: 'coreano', footerOnly: true },
+    { id: 'zh', label: 'chinês', footerOnly: true },
+    { id: 'ru', label: 'russo', footerOnly: true },
+  ],
   indexFile: 'data/magic-index.json',
   parseIndex: (json) => parseIndex(json, { splitFaces: true }),
   geometry: {

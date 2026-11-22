@@ -35,7 +35,8 @@ interface Grouped {
 }
 
 function setSuffix(e: SessionEntry): string {
-  const f = (e.finish && e.finish !== 'nonfoil' ? `|${e.finish}` : '') + (e.condition ? `|${e.condition}` : '');
+  const f =
+    (e.finish && e.finish !== 'nonfoil' ? `|${e.finish}` : '') + (e.condition ? `|${e.condition}` : '') + (e.lang ? `|${e.lang}` : '');
   if (e.printing) return `${e.printing.set}|${e.printing.number}${f}`;
   if (e.set) return `${e.set}|${f}`;
   return f;
@@ -88,7 +89,7 @@ const money = (usd: number | null | undefined, rate: number | null) =>
   usd != null && rate ? decimal(usd * rate) : '';
 
 export function toCsv(entries: SessionEntry[], scope: ExportScope, minBrl = 0): string {
-  const header = ['Quantidade', 'Nome', 'Edição', 'Número', 'Acabamento', 'Condição', 'Alerta', 'Mín. R$', 'Máx. R$', 'Mín. US$', 'Máx. US$', 'Edição mais cara'];
+  const header = ['Quantidade', 'Nome', 'Edição', 'Número', 'Acabamento', 'Condição', 'Idioma', 'Alerta', 'Mín. R$', 'Máx. R$', 'Mín. US$', 'Máx. US$', 'Edição mais cara'];
   const finishName = { nonfoil: 'normal', foil: 'foil', etched: 'especial' } as const;
   const levelName: Record<AlertLevel, string> = { red: 'vermelho', yellow: 'amarelo', check: 'confira a edição', none: '' };
   const rows = group(entries, scope, true, minBrl).map(({ name, count, entry: e }) => {
@@ -100,6 +101,7 @@ export function toCsv(entries: SessionEntry[], scope: ExportScope, minBrl = 0): 
     e.printing?.number ?? '',
     e.finish ? finishName[e.finish] : '',
     e.condition ?? '',
+    e.lang ?? '',
     levelName[effectiveLevel(e, minBrl)],
     money(r.min, e.usdBrl),
     money(r.max, e.usdBrl),

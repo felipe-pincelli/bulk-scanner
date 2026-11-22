@@ -48,11 +48,15 @@ export function ghostCard(aspect: number): CardBox {
   return { x: 0.5 - aspect / 2, y: 0, w: aspect, h: 1 };
 }
 
-/** Região do rodapé (frações da área, carta em pé), recortada aos limites da área. */
-export function footerRegion(card: CardBox, geo: CardGeometry): Region | null {
+/**
+ * Região do rodapé (frações da área, carta em pé), recortada aos limites da área.
+ * `slack`: folga extra para cima (fração da altura da carta) — usada com a
+ * silhueta, porque a carta real raramente fica exatamente do tamanho dela.
+ */
+export function footerRegion(card: CardBox, geo: CardGeometry, slack = 0): Region | null {
   const f = geo.footer;
   const x0 = Math.max(0, card.x + f.x * card.w);
-  const y0 = Math.max(0, card.y + f.y * card.h);
+  const y0 = Math.max(0, card.y + (f.y - slack) * card.h);
   const x1 = Math.min(1, card.x + (f.x + f.w) * card.w);
   const y1 = Math.min(1, card.y + (f.y + f.h) * card.h);
   if (x1 - x0 < f.w * card.w * 0.5 || y1 - y0 < f.h * card.h * 0.5) return null; // rodapé fora da área

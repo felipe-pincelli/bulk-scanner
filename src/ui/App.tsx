@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { listCameras, startCamera, stopCamera, type CameraDevice } from '../core/camera/cameraService';
 import { screenRectToVideoRect } from '../core/camera/geometry';
 import { gameList, games } from '../core/games/registry';
@@ -12,6 +12,7 @@ import { Scanner, type ScanRead } from '../core/scanner/scanner';
 import { evaluateAlert, type AlertBasis, type AlertLevel, type AlertSettings } from '../core/alerts/alertRules';
 import { AlertFlow } from '../core/alerts/alertFlow';
 import { priceForPrintings } from '../core/edition/editionPrice';
+import { buildFooterIndex, type FooterIndex } from '../core/edition/footerIndex';
 import { adjustPrice, CONDITION_NAME, CONDITIONS, FINISHES, type Condition, type CopyInfo, type Finish } from '../core/prices/copyPrice';
 import type { EditionResult } from '../core/edition/parseFooter';
 import { createWebFeedback } from '../core/platform/feedback';
@@ -119,6 +120,8 @@ export function App() {
   const timesRef = useRef<number[]>([]);
   const footerPreviewRef = useRef<HTMLCanvasElement>(null);
   const copyRef = useRef<CopyInfo>({});
+  const footerIndexRef = useRef<FooterIndex | null>(null);
+  const lotLangRef = useRef<{ id: string; label: string; footerOnly: boolean } | null>(null);
   /** Último texto reconhecido de cada carta (ex.: "Relâmpago" → Lightning Bolt). */
   const readNameRef = useRef(new Map<string, string>());
   const flowRef = useRef<AlertFlow | null>(null);
@@ -158,6 +161,10 @@ export function App() {
   const game = games[gameId];
   const gameRef = useRef(game);
   gameRef.current = game;
+  // Idioma das próximas cartas (Magic): japonês, phyrexiano… → identificação pelo rodapé.
+  const [lotLangId, setLotLangId] = useState(() => loadPref('lotLang', 'latin'));
+  const lotLang = game.lotLanguages?.find((l) => l.id === lotLangId) ?? null;
+  lotLangRef.current = lotLang;
   const sessionGameRef = useRef<string | null>(null);
   const [session, setSession] = useState<Session>(newSession);
   const sessionRef = useRef(session);
@@ -175,6 +182,14 @@ export function App() {
       : undefined,
   }));
   copyRef.current = copy;
+  // Catálogo edição+número → carta: só é montado quando o lote usa um idioma
+  // reconhecido pelo rodapé (japonês, phyrexiano…).
+  const footerIndex = useMemo(
+    () => (lotLang?.footerOnly && prices.size ? buildFooterIndex(prices) : null),
+    [prices, lotLang?.footerOnly],
+  );
+  footerIndexRef.current = footerIndex;
+
   function changeCopy(patch: CopyInfo) {
     const next = { ...copyRef.current, ...patch };
     copyRef.current = next;
@@ -313,7 +328,11 @@ export function App() {
     for (const ev of batch) {
       const usdBrl = rateRef.current?.usdBrl ?? null;
       const data = { cardName: ev.cardName, ...ev.decision, price: ev.price, usdBrl, printing: ev.printing, set: ev.set };
-      const lot = { finish: copyRef.current.finish, condition: copyRef.current.condition };
+      const lot = {
+        finish: copyRef.current.finish,
+        condition: copyRef.current.condition,
+        lang: lotLangRef.current && lotLangRef.current.id !== 'latin' ? lotLangRef.current.label : undefined,
+      };
       const readAs = readNameRef.current.get(ev.cardName);
       const printedName = readAs && isOtherName(readAs, ev.cardName) ? readAs : undefined;
       if (ev.replaces) {
@@ -399,6 +418,7 @@ export function App() {
           onRead,
           autoRotate,
           needsEdition: (name) => flowRef.current!.needsEdition(name),
+          getFooterIndex: () => (lotLangRef.current?.footerOnly ? footerIndexRef.current : null),
         });
       }
       scannerRef.current.start();
@@ -474,7 +494,13 @@ export function App() {
   // Com lote informado (ex.: "foil · SP"), mostra o preço dessa cópia.
   const shownPrice =
     basePrice && (copy.finish || copy.condition) ? adjustPrice(basePrice, copy, ed?.result?.printing) : basePrice;
-  const lotLabel = [copy.finish && game.finishLabels[copy.finish], copy.condition].filter(Boolean).join(' · ');
+  const lotLabel = [
+    lotLang && lotLang.id !== 'latin' && lotLang.label,
+    copy.finish && game.finishLabels[copy.finish],
+    copy.condition,
+  ]
+    .filter(Boolean)
+    .join(' · ');
   const current = read?.match ? evaluateAlert(shownPrice, rate?.usdBrl ?? null, alertSettings) : null;
   const history = [...session.entries].reverse();
   const alertCount = history.filter((h) => h.level === 'yellow' || h.level === 'red').length;
@@ -596,6 +622,29 @@ export function App() {
             Próximas cartas: <b>{lotLabel || 'não informado'}</b>{' '}
             <span className="muted small">(vale para todas até você mudar)</span>
           </summary>
+          {game.lotLanguages && (
+            <div className="chips" role="group" aria-label="Idioma das próximas cartas">
+              <span className="lot-label">Idioma</span>
+              {game.lotLanguages.map((l) => (
+                <button
+                  key={l.id}
+                  className={`chip ${lotLang?.id === l.id ? 'on' : ''}`}
+                  onClick={() => {
+                    setLotLangId(l.id);
+                    savePref('lotLang', l.id);
+                  }}
+                >
+                  {l.label}
+                </button>
+              ))}
+            </div>
+          )}
+          {lotLang?.footerOnly && (
+            <p className="muted small">
+              Em {lotLang.label}, a carta é reconhecida pelo <b>rodapé</b> (edição + número, ex.: "NEO • JA 123"):
+              funciona com cartas de 2015 em diante. O preço é o da mesma edição/número em inglês.
+            </p>
+          )}
           <div className="chips" role="group" aria-label="Acabamento das próximas cartas">
             <span className="lot-label">Acabamento</span>
             <button className={`chip ${!copy.finish ? 'on' : ''}`} onClick={() => changeCopy({ finish: undefined })}>

@@ -36,6 +36,7 @@ function EntryRow({
         <strong>
           {e.cardName}
           {e.printedName && <span className="muted small"> ({e.printedName})</span>}
+          {e.lang && <span className="muted small"> · {e.lang}</span>}
         </strong>
         <span className="entry-price">
           {r.min === r.max ? formatBrl(r.max, e.usdBrl) : `${formatBrl(r.min, e.usdBrl)} – ${formatBrl(r.max, e.usdBrl)}`}

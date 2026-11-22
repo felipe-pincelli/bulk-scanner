@@ -75,6 +75,14 @@ valores. Enquanto houver lote ativo, aparece um aviso sobre a câmera
 um Moat num lote foil), o app usa o preço normal dela. Dá para corrigir carta a
 carta no resumo.
 
+**Cartas em japonês, phyrexiano, coreano, chinês ou russo (Magic):** em
+**Próximas cartas → Idioma**, escolha o idioma do lote. Nesses idiomas o app não
+tenta ler o nome: ele identifica a carta **pelo rodapé** (edição + número, que nas
+cartas de 2015 em diante vêm em letras latinas, ex.: `NEO • JA 123`, `ONE • PH 010`),
+procurando entre todas as impressões do índice. O preço usado é o da mesma
+edição/número em inglês (cartas que só existem em outro idioma têm preço próprio).
+Cartas antigas, sem código no rodapé, não são reconhecidas nesse modo.
+
 **Dicas:**
 - Use **Ajustes e diagnóstico → Tamanho da área de detecção** para a carta ocupar
   boa parte do quadrado. É especialmente útil com webcam fixa no PC.
@@ -349,7 +357,8 @@ app não muda.
 
 ## 10. Limitações conhecidas
 
-- **Idiomas: inglês e português.** Cartas em português são reconhecidas pelo nome
+- **Idiomas: inglês e português pelo nome; japonês, phyrexiano, coreano, chinês e
+  russo pelo rodapé** (cartas de 2015 em diante, Magic). Cartas em português são reconhecidas pelo nome
   impresso ("Relâmpago" → Lightning Bolt) e o painel mostra "lido como: …". O
   **preço usado é o da versão em inglês** (TCGplayer); no Brasil a versão em
   português pode valer diferente. Outros idiomas (japonês etc.) não são

@@ -160,8 +160,11 @@ export class AlertFlow {
       const price = this.deps.getPrice(appeared) ?? null;
       const decision = this.decide(price);
       const event: CardEvent = { cardName: appeared, decision, price, ...onlyPrinting(price) };
-      if (price && this.needsEdition(appeared)) {
-        const known = this.lastEdition?.cardName === appeared ? this.lastEdition.best : null;
+      const known = this.lastEdition?.cardName === appeared ? this.lastEdition.best : null;
+      if (price && known?.printing) {
+        // Edição já lida (ex.: modo "pelo rodapé"): alerta direto com o preço exato.
+        push(this.resolve({ cardName: appeared, price, fallback: decision, best: known, reads: 0, mode: 'wait' }));
+      } else if (price && this.needsEdition(appeared)) {
         const pending: Pending = { cardName: appeared, price, fallback: decision, best: known, reads: 0, mode: 'wait' };
         if (known?.printing) {
           // O rodapé já foi lido antes da confirmação: alerta direto com o preço exato.

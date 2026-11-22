@@ -2,6 +2,7 @@ import { subRect, type Rect } from '../camera/geometry';
 import type { GameProvider, Printing } from '../games/types';
 import { estimateCard, footerRegion, ghostCard } from '../edition/footer';
 import { parseFooter, type EditionResult } from '../edition/parseFooter';
+import { identifyByFooter, type FooterIndex } from '../edition/footerIndex';
 import { normalize, type FuzzyMatcher, type MatchResult } from '../matching/fuzzyMatcher';
 import type { OcrEngine, OcrLine } from '../ocr/ocrEngine';
 import { cropForOcr, findTextRow, PAD } from '../ocr/preprocess';
@@ -71,6 +72,11 @@ export interface ScannerOptions {
    * depende da edição); senão null.
    */
   needsEdition?: (cardName: string) => Printing[] | null;
+  /**
+   * Modo "pelo rodapé" (cartas em japonês, phyrexiano…): se devolver um catálogo,
+   * a carta é identificada SÓ pela edição + número do rodapé, sem ler o nome.
+   */
+  getFooterIndex?: () => FooterIndex | null;
 }
 
 /** Tentativas de ler o rodapé por carta (cada uma ~uma leitura extra). */
@@ -134,6 +140,8 @@ export class Scanner {
   private attempt = 0;
   private footerCanvas = document.createElement('canvas');
   private subCanvas = document.createElement('canvas');
+  private footerUseBar = true;
+  private footerMisses = 0;
   private subCanvas2 = document.createElement('canvas');
   private subCanvas3 = document.createElement('canvas');
   /** Estado da leitura de edição da carta atual. */
@@ -177,6 +185,79 @@ export class Scanner {
     return o;
   }
 
+  /** Uma leitura no modo "pelo rodapé": acha a carta, lê o rodapé e consulta o catálogo. */
+  private async scanByFooter(video: HTMLVideoElement, zone: Rect, index: FooterIndex) {
+    const { game, readsToConfirm = 2 } = this.opts;
+    const first: Orientation = this.opts.autoRotate ? (this.goodOrientation ?? this.nextOther()) : 0;
+    const plan = this.opts.autoRotate ? [first, this.nextOther(first)] : [first];
+    let hit: ReturnType<typeof identifyByFooter> = null;
+    let orientation = first;
+    let text = '';
+    let crop = this.footerCanvas;
+    let ocrMs = 0;
+    for (const o of plan) {
+      orientation = o;
+      // Onde está a carta: pela faixa do nome (sem precisar ler o nome — basta
+      // achar a barra) ou pela silhueta na tela, alternando entre as leituras.
+      const bandRegion = rotateRegion(game.nameSearchBand, o);
+      const scale = Math.min(2, NAME_BAND_PX / (game.nameRegion.h * zone.h));
+      const band = cropForOcr(video, subRect(zone, bandRegion), this.canvas, { rotateDeg: correctionDeg(o), scale });
+      const hint = findTextRow(band, NAME_BAND_PX * 0.45, game.nameHintSpan, game.nameIsTallestText);
+      const fromBar = estimateCard(hint, game.nameSearchBand, scale * zone.w, game.geometry, game.cardAspect);
+      // Fica com a estimativa que funcionou da última vez; troca só quando falha.
+      const useBar = !!fromBar && this.footerUseBar;
+      const card = useBar ? fromBar! : ghostCard(game.cardAspect);
+      const region = footerRegion(card, game.geometry, useBar ? 0 : (game.geometry.footerSlack ?? 0.06));
+      if (!region) continue;
+      const footerScale = Math.min(4, FOOTER_TEXT_PX / (game.geometry.footerTextH * card.h * zone.h));
+      crop = cropForOcr(video, subRect(zone, rotateRegion(region, o)), this.footerCanvas, {
+        rotateDeg: correctionDeg(o),
+        scale: footerScale,
+        invertIfDark: true,
+        localBinarizePx: FOOTER_TEXT_PX,
+      });
+      const t0 = performance.now();
+      text = await this.opts.engine.readFooter(crop);
+      ocrMs += performance.now() - t0;
+      hit = identifyByFooter(text, index);
+      if (hit) break;
+      this.footerUseBar = !this.footerUseBar;
+    }
+    if (hit) this.goodOrientation = orientation;
+    // Um quadro sem leitura no meio não zera a confirmação (o rodapé é pequeno e
+    // às vezes falha num quadro); só 3 falhas seguidas contam como "a carta saiu".
+    if (hit) {
+      this.footerMisses = 0;
+      if (hit.cardName === this.lastName) this.streak++;
+      else this.streak = 1;
+      this.lastName = hit.cardName;
+    } else if (++this.footerMisses >= 3) {
+      this.streak = 0;
+      this.lastName = null;
+    }
+    const match = hit ? { cardName: hit.cardName, matchText: hit.cardName, score: 1 } : null;
+    this.opts.onRead({
+      rawText: text.replace(/\s+/g, ' ').trim(),
+      match,
+      bestGuess: match,
+      confirmed: this.streak >= readsToConfirm,
+      orientation,
+      ocrMs,
+      matchMs: 0,
+      crop,
+      edition: hit
+        ? {
+            cardName: hit.cardName,
+            result: { printing: hit.printing, set: hit.printing.set, candidates: [hit.printing] },
+            done: true,
+            attempts: 1,
+            crop,
+            rawText: text,
+          }
+        : undefined,
+    });
+  }
+
   private async readEdition(
     video: HTMLVideoElement,
     zone: Rect,
@@ -194,8 +275,9 @@ export class Scanner {
     // Tamanho/posição da carta: pela faixa do nome; senão, pela silhueta na tela.
     // Alterna entre os dois nas tentativas, caso a primeira estimativa erre.
     const fromBar = estimateCard(hint, game.nameSearchBand, scale * zone.w, game.geometry, game.cardAspect);
-    const card = fromBar && state.attempts % 2 === 1 ? fromBar : ghostCard(game.cardAspect);
-    const region = footerRegion(card, game.geometry);
+    const useBar = !!fromBar && state.attempts % 2 === 1;
+    const card = useBar ? fromBar! : ghostCard(game.cardAspect);
+    const region = footerRegion(card, game.geometry, useBar ? 0 : (game.geometry.footerSlack ?? 0.06));
     if (region) {
       const rect = subRect(zone, rotateRegion(region, orientation));
       const footerScale = Math.min(4, FOOTER_TEXT_PX / (game.geometry.footerTextH * card.h * zone.h));
@@ -218,7 +300,10 @@ export class Scanner {
       const started = performance.now();
       const zone = this.opts.getZoneRect();
       const { video } = this.opts;
-      if (zone && video.videoWidth > 0 && zone.w > 20) {
+      const footerIndex = this.opts.getFooterIndex?.() ?? null;
+      if (zone && video.videoWidth > 0 && zone.w > 20 && footerIndex) {
+        await this.scanByFooter(video, zone, footerIndex);
+      } else if (zone && video.videoWidth > 0 && zone.w > 20) {
         const first: Orientation = this.opts.autoRotate ? (this.goodOrientation ?? this.nextOther()) : 0;
         const plan = this.opts.autoRotate ? [first, this.nextOther(first)] : [first];
 

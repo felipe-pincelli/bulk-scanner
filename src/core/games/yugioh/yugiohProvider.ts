@@ -33,6 +33,7 @@ export const yugiohProvider: GameProvider = {
     // Abaixo da arte, à direita: "LOB-EN001".
     footer: { x: 0.5, y: 0.71, w: 0.47, h: 0.055 },
     footerTextH: 0.014,
+    footerSlack: 0, // a arte fica logo acima do código
   },
   finishLabels: { nonfoil: 'unlimited', foil: '1ª edição', etched: 'rara especial', '': '' },
   exportWithSet: {

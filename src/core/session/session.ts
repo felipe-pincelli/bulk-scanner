@@ -28,6 +28,8 @@ export interface SessionEntry {
   condition?: Condition;
   /** Nome como foi lido na carta, se diferente do oficial (ex.: "Relâmpago"). */
   printedName?: string;
+  /** Idioma informado no lote (ex.: "japonês"), se não for o padrão. */
+  lang?: string;
 }
 
 export interface Session {
@@ -137,7 +139,7 @@ export function sessionToText(s: SessionSummary, startedAt: number): string {
     return r.min === r.max ? formatBrl(r.max, e.usdBrl) : `${formatBrl(r.min, e.usdBrl)} a ${formatBrl(r.max, e.usdBrl)}`;
   };
   const line = (e: SessionEntry) =>
-    `• ${e.cardName}${e.printedName ? ` (${e.printedName})` : ''}: ${range(e)}` +
+    `• ${e.cardName}${e.printedName ? ` (${e.printedName})` : ''}${e.lang ? ` [${e.lang}]` : ''}: ${range(e)}` +
     (e.finish && e.finish !== 'nonfoil' ? (e.finish === 'foil' ? ' [foil]' : ' [especial]') : '') +
     (e.condition && e.condition !== 'NM' ? ` [${e.condition}]` : '') +
     (e.printing

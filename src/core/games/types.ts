@@ -70,6 +70,12 @@ export interface CardGeometry {
   footer: Region;
   /** Altura das letras do rodapé. */
   footerTextH: number;
+  /**
+   * Folga para cima no recorte do rodapé quando a posição vem da silhueta (a carta
+   * real raramente tem o tamanho exato dela). Padrão 0,06; 0 quando há arte logo
+   * acima do rodapé (Yu-Gi-Oh!), que atrapalharia a leitura.
+   */
+  footerSlack?: number;
 }
 
 export interface GameProvider {
@@ -97,6 +103,11 @@ export interface GameProvider {
   nameIsTallestText?: boolean;
   /** O nome ocupa duas linhas seguidas (Lorcana: personagem + versão). */
   nameJoinsLines?: boolean;
+  /**
+   * Idiomas que o usuário pode escolher para o lote. `footerOnly`: a carta é
+   * identificada só pelo rodapé (edição + número), sem ler o nome.
+   */
+  lotLanguages?: { id: string; label: string; footerOnly: boolean }[];
   /** Caracteres que podem aparecer num nome (ajuda o OCR a não "inventar" símbolos). */
   nameCharWhitelist: string;
   /** Arquivo do índice, relativo à pasta do site (gerado por scripts/build-data.ts). */

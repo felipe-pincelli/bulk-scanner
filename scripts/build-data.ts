@@ -257,6 +257,9 @@ async function main() {
   if (!only || only === 'magic') {
     if (!testing || process.argv.includes('--file')) {
       const b = new IndexBuilder();
+      // Todas as impressões (até as únicas): permitem identificar uma carta só pela
+      // edição + número do rodapé (cartas em japonês, phyrexiano etc.).
+      b.keepAllPrintings = true;
       const pricesUpdatedAt = await buildMagic(b);
       b.write(
         'public/data/magic-index.json',
