@@ -12,6 +12,7 @@ import { Scanner, type ScanRead } from '../core/scanner/scanner';
 import { evaluateAlert, type AlertBasis, type AlertLevel, type AlertSettings } from '../core/alerts/alertRules';
 import { AlertFlow } from '../core/alerts/alertFlow';
 import { priceForPrintings } from '../core/edition/editionPrice';
+import { adjustPrice, CONDITION_NAME, CONDITIONS, FINISHES, type Condition, type CopyInfo, type Finish } from '../core/prices/copyPrice';
 import type { EditionResult } from '../core/edition/parseFooter';
 import { createWebFeedback } from '../core/platform/feedback';
 import { keepScreenOn } from '../core/platform/wakeLock';
@@ -23,6 +24,7 @@ import {
   removeEntry,
   replaceLastEntry,
   saveSession,
+  setEntryCondition,
   setEntryFinish,
   type Session,
 } from '../core/session/session';
@@ -111,12 +113,14 @@ export function App() {
   const matcherRef = useRef<FuzzyMatcher | null>(null);
   const timesRef = useRef<number[]>([]);
   const footerPreviewRef = useRef<HTMLCanvasElement>(null);
+  const copyRef = useRef<CopyInfo>({});
   const flowRef = useRef<AlertFlow | null>(null);
   if (!flowRef.current) {
     flowRef.current = new AlertFlow({
       getPrice: (name) => pricesRef.current.get(name),
       getRate: () => rateRef.current?.usdBrl ?? null,
       getSettings: () => alertRef.current,
+      getCopy: () => copyRef.current,
     });
   }
   const releaseWakeRef = useRef<(() => void) | null>(null);
@@ -156,6 +160,21 @@ export function App() {
   const [alertSettings, setAlertSettings] = useState<AlertSettings>(alertRef.current);
   const [minInput, setMinInput] = useState(String(alertRef.current.minBrl));
   const [soundOn, setSoundOn] = useState(() => loadPref('sound', '1') === '1');
+  // Lote: acabamento/condição de TODAS as próximas cartas (quem já separou antes).
+  const [copy, setCopy] = useState<CopyInfo>(() => ({
+    finish: (FINISHES as string[]).includes(loadPref('lotFinish', '')) ? (loadPref('lotFinish', '') as Finish) : undefined,
+    condition: (CONDITIONS as string[]).includes(loadPref('lotCondition', ''))
+      ? (loadPref('lotCondition', '') as Condition)
+      : undefined,
+  }));
+  copyRef.current = copy;
+  function changeCopy(patch: CopyInfo) {
+    const next = { ...copyRef.current, ...patch };
+    copyRef.current = next;
+    setCopy(next);
+    savePref('lotFinish', next.finish ?? '');
+    savePref('lotCondition', next.condition ?? '');
+  }
   const [flash, setFlash] = useState<{ level: AlertLevel; id: number } | null>(null);
   const [editionView, setEditionView] = useState<EditionView | null>(null);
   const [wakeInfo, setWakeInfo] = useState<string>('');
@@ -285,6 +304,7 @@ export function App() {
     for (const ev of batch) {
       const usdBrl = rateRef.current?.usdBrl ?? null;
       const data = { cardName: ev.cardName, ...ev.decision, price: ev.price, usdBrl, printing: ev.printing, set: ev.set };
+      const lot = { finish: copyRef.current.finish, condition: copyRef.current.condition };
       if (ev.replaces) {
         // Edição lida depois do alerta: corrige a sessão; se subiu de nível, avisa de novo.
         const prev = [...sessionRef.current.entries].reverse().find((e) => e.cardName === ev.cardName);
@@ -299,7 +319,7 @@ export function App() {
         feedback.alert(ev.decision.level);
         setFlash({ level: ev.decision.level, id: performance.now() });
       }
-      setSession((s) => addEntry(s, { ...data, at: Date.now() }));
+      setSession((s) => addEntry(s, { ...data, ...lot, at: Date.now() }));
     }
   }, []);
 
@@ -439,7 +459,11 @@ export function App() {
     : ed?.result?.set
       ? priceForPrintings(ed.result.candidates)
       : null;
-  const shownPrice = read?.match ? (edPrice ?? prices.get(read.match.cardName)) : undefined;
+  const basePrice = read?.match ? (edPrice ?? prices.get(read.match.cardName)) : undefined;
+  // Com lote informado (ex.: "foil · SP"), mostra o preço dessa cópia.
+  const shownPrice =
+    basePrice && (copy.finish || copy.condition) ? adjustPrice(basePrice, copy, ed?.result?.printing) : basePrice;
+  const lotLabel = [copy.finish && game.finishLabels[copy.finish], copy.condition].filter(Boolean).join(' · ');
   const current = read?.match ? evaluateAlert(shownPrice, rate?.usdBrl ?? null, alertSettings) : null;
   const history = [...session.entries].reverse();
   const alertCount = history.filter((h) => h.level === 'yellow' || h.level === 'red').length;
@@ -493,6 +517,7 @@ export function App() {
           <i className="corner bl" />
           <i className="corner br" />
         </div>
+        {lotLabel && <div className="lot-badge">Lote: {lotLabel}</div>}
         {!running && !busy && (
           <div className="hint">
             Jogo: <b>{game.displayName}</b> (troque no topo). Toque em <b>Iniciar sessão</b> (libera o som) e
@@ -509,6 +534,7 @@ export function App() {
           minBrl={alertSettings.minBrl}
           onRemove={(id) => setSession((s) => removeEntry(s, id))}
           onFinish={(id, f) => setSession((s) => setEntryFinish(s, id, f))}
+          onCondition={(id, c) => setSession((s) => setEntryCondition(s, id, c))}
           onContinue={() => {
             setShowSummary(false);
             void start();
@@ -531,6 +557,7 @@ export function App() {
         </div>
         {read?.match && <EditionLine view={ed} hasPrintings={(prices.get(read.match.cardName)?.printings?.length ?? 0) > 1} />}
         {read?.match && <PriceLine info={shownPrice} rate={rate} game={game} />}
+        {read?.match && lotLabel && <div className="muted small">preço considerando o lote: {lotLabel}</div>}
 
         <label className="min-row">
           Alertar a partir de
@@ -547,6 +574,40 @@ export function App() {
           </span>
           <span className="muted">vermelho a partir de {brl.format(alertSettings.minBrl * 5)}</span>
         </label>
+
+        <details className="lot">
+          <summary className="lot-title">
+            Próximas cartas: <b>{lotLabel || 'não informado'}</b>{' '}
+            <span className="muted small">(vale para todas até você mudar)</span>
+          </summary>
+          <div className="chips" role="group" aria-label="Acabamento das próximas cartas">
+            <span className="lot-label">Acabamento</span>
+            <button className={`chip ${!copy.finish ? 'on' : ''}`} onClick={() => changeCopy({ finish: undefined })}>
+              não informado
+            </button>
+            {FINISHES.map((f) => (
+              <button key={f} className={`chip ${copy.finish === f ? 'on' : ''}`} onClick={() => changeCopy({ finish: f })}>
+                {game.finishLabels[f]}
+              </button>
+            ))}
+          </div>
+          <div className="chips" role="group" aria-label="Condição das próximas cartas">
+            <span className="lot-label">Condição</span>
+            <button className={`chip ${!copy.condition ? 'on' : ''}`} onClick={() => changeCopy({ condition: undefined })}>
+              não informada
+            </button>
+            {CONDITIONS.map((c) => (
+              <button
+                key={c}
+                className={`chip ${copy.condition === c ? 'on' : ''}`}
+                title={CONDITION_NAME[c]}
+                onClick={() => changeCopy({ condition: c })}
+              >
+                {c}
+              </button>
+            ))}
+          </div>
+        </details>
 
         <details>
           <summary>

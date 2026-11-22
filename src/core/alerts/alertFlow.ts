@@ -1,5 +1,6 @@
 import type { PriceInfo, Printing } from '../games/types';
 import { priceForPrintings } from '../edition/editionPrice';
+import { adjustPrice, type CopyInfo } from '../prices/copyPrice';
 import type { EditionResult } from '../edition/parseFooter';
 import type { ScanRead } from '../scanner/scanner';
 import { evaluateAlert, type AlertDecision, type AlertSettings } from './alertRules';
@@ -50,6 +51,8 @@ export class AlertFlow {
       getPrice: (cardName: string) => PriceInfo | undefined;
       getRate: () => number | null;
       getSettings: () => AlertSettings;
+      /** Acabamento/condição informados para as próximas cartas (lote). */
+      getCopy?: () => CopyInfo;
       /** Leituras a esperar pela edição antes de desistir (~4 = 1 s). */
       maxWaitReads?: number;
     },
@@ -71,15 +74,22 @@ export class AlertFlow {
   }
 
   /** Ambíguo: a versão mais barata e a mais cara caem em níveis de alerta diferentes. */
-  private isAmbiguous(price: PriceInfo): boolean {
+  private isAmbiguous(raw: PriceInfo): boolean {
     if (!this.deps.getRate()) return false;
     const s = this.deps.getSettings();
+    const price = this.adjust(raw);
     const maxUsd = s.includeFoil ? price.maxUsd : (price.maxNonfoilUsd ?? price.maxUsd);
     return this.tier(price.minUsd) !== this.tier(maxUsd);
   }
 
-  private decide(price: PriceInfo | null): AlertDecision {
-    return evaluateAlert(price ?? undefined, this.deps.getRate(), this.deps.getSettings());
+  /** Preço desta cópia, com o acabamento/condição do lote (se informados). */
+  private adjust(price: PriceInfo, printing?: Printing | null): PriceInfo {
+    const copy = this.deps.getCopy?.() ?? {};
+    return copy.finish || copy.condition ? adjustPrice(price, copy, printing) : price;
+  }
+
+  private decide(price: PriceInfo | null, printing?: Printing | null): AlertDecision {
+    return evaluateAlert(price ? this.adjust(price, printing) : undefined, this.deps.getRate(), this.deps.getSettings());
   }
 
   private eventFor(p: Pending): CardEvent | null {
@@ -94,7 +104,7 @@ export class AlertFlow {
     const r = p.best;
     if (r?.printing) {
       const price = priceForPrintings([r.printing]);
-      return { cardName: p.cardName, decision: this.decide(price), price, printing: r.printing, set: r.set };
+      return { cardName: p.cardName, decision: this.decide(price, r.printing), price, printing: r.printing, set: r.set };
     }
     if (r?.set && r.candidates.length) {
       const price = priceForPrintings(r.candidates);

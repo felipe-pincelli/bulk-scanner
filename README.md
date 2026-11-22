@@ -66,6 +66,15 @@ disponível → Atualizar"**. Nada muda sozinho no meio de uma sessão.
    faixa de preço em R$ aparece logo abaixo.
 4. Toque em **Parar** para ver o resumo da sessão.
 
+**Lote (cartas já separadas):** em **Próximas cartas**, escolha o acabamento
+(normal / foil / foil etched; no Pokémon normal / reverse holo / 1ª edição) e/ou a
+condição (NM / SP / MP / HP / DMG). Isso vale para **todas as cartas lidas daí em
+diante**, até você mudar: o preço mostrado, os alertas e a sessão já usam esses
+valores. Enquanto houver lote ativo, aparece um aviso sobre a câmera
+(ex.: "Lote: foil · SP"). Se uma carta do lote não existir naquele acabamento (ex.:
+um Moat num lote foil), o app usa o preço normal dela. Dá para corrigir carta a
+carta no resumo.
+
 **Dicas:**
 - Use **Ajustes e diagnóstico → Tamanho da área de detecção** para a carta ocupar
   boa parte do quadrado. É especialmente útil com webcam fixa no PC.
@@ -123,6 +132,10 @@ Ao tocar em **Parar**:
   **total estimado**. O total é a soma da versão mais
   barata de cada carta com alerta, ou seja, o mínimo garantido. Logo abaixo aparece
   quanto daria se todas fossem as edições mais caras.
+- **Condição:** cada carta também tem botões **NM / SP / MP / HP / DMG**. Os
+  preços do TCGplayer são de cartas NM; para as demais o app aplica um desconto
+  aproximado (SP 85%, MP 70%, HP 50%, DMG 35%) no preço, no alerta e no total. A
+  condição vai para o CSV.
 - **Acabamento:** o app não detecta foil pela câmera (o brilho depende demais da
   luz e do ângulo). Em cada carta do resumo há botões **normal / foil / foil
   etched** (no Pokémon: **normal / reverse holo / 1ª edição**). Ao marcar, o

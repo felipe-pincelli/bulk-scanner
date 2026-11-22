@@ -1,7 +1,7 @@
 import type { AlertLevel } from '../alerts/alertRules';
 import type { PriceInfo, Printing } from '../games/types';
 import { kvGet, kvSet } from '../storage/kvStore';
-import { effectiveLevel, entryRangeUsd, type Finish } from './finish';
+import { effectiveLevel, entryRangeUsd, type Condition, type Finish } from './finish';
 
 /**
  * Sessão de escaneamento: todas as cartas reconhecidas, com o preço do momento.
@@ -22,8 +22,10 @@ export interface SessionEntry {
   printing?: Printing | null;
   /** Código da edição identificada (mesmo sem a versão exata). */
   set?: string | null;
-  /** Acabamento escolhido pelo usuário no resumo (sem escolha = não informado). */
+  /** Acabamento informado pelo usuário (lote ou resumo). Sem valor = não informado. */
   finish?: Finish;
+  /** Condição informada pelo usuário (lote ou resumo). Sem valor = não informada. */
+  condition?: Condition;
 }
 
 export interface Session {
@@ -73,6 +75,10 @@ export function replaceLastEntry(session: Session, entry: Omit<SessionEntry, 'id
 
 export function setEntryFinish(session: Session, id: string, finish: Finish): Session {
   return { ...session, entries: session.entries.map((e) => (e.id === id ? { ...e, finish } : e)) };
+}
+
+export function setEntryCondition(session: Session, id: string, condition: Condition): Session {
+  return { ...session, entries: session.entries.map((e) => (e.id === id ? { ...e, condition } : e)) };
 }
 
 export function removeEntry(session: Session, id: string): Session {
@@ -131,6 +137,7 @@ export function sessionToText(s: SessionSummary, startedAt: number): string {
   const line = (e: SessionEntry) =>
     `• ${e.cardName}: ${range(e)}` +
     (e.finish && e.finish !== 'nonfoil' ? (e.finish === 'foil' ? ' [foil]' : ' [especial]') : '') +
+    (e.condition && e.condition !== 'NM' ? ` [${e.condition}]` : '') +
     (e.printing
       ? ` (${e.printing.setName} #${e.printing.number})`
       : e.set

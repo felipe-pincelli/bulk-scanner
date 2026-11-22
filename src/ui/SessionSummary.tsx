@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { ExportPanel } from './ExportPanel';
 import type { GameProvider } from '../core/games/types';
-import { effectiveLevel, entryRangeUsd, finishOptions, type Finish } from '../core/session/finish';
+import { CONDITIONS, effectiveLevel, entryRangeUsd, finishOptions, type Condition, type Finish } from '../core/session/finish';
+import { CONDITION_NAME } from '../core/prices/copyPrice';
 import { formatBrl, sessionToText, summarize, type Session, type SessionEntry } from '../core/session/session';
 
 /**
@@ -17,12 +18,14 @@ function EntryRow({
   minBrl,
   onRemove,
   onFinish,
+  onCondition,
 }: {
   e: SessionEntry;
   game: GameProvider;
   minBrl: number;
   onRemove: () => void;
   onFinish: (f: Finish) => void;
+  onCondition: (c: Condition) => void;
 }) {
   const p = e.price;
   const r = entryRangeUsd(e);
@@ -62,6 +65,20 @@ function EntryRow({
           {!e.finish && <span className="muted small">toque para informar</span>}
         </div>
       )}
+      <div className="finish" role="group" aria-label="Condição">
+        {CONDITIONS.map((c) => (
+          <button
+            key={c}
+            className={`chip small-chip ${e.condition === c ? 'on' : ''}`}
+            aria-pressed={e.condition === c}
+            title={CONDITION_NAME[c]}
+            onClick={() => onCondition(c)}
+          >
+            {c}
+          </button>
+        ))}
+        {!e.condition && <span className="muted small">condição</span>}
+      </div>
     </li>
   );
 }
@@ -72,6 +89,7 @@ export function SessionSummaryView({
   minBrl,
   onRemove,
   onFinish,
+  onCondition,
   onContinue,
   onNewSession,
 }: {
@@ -80,6 +98,7 @@ export function SessionSummaryView({
   minBrl: number;
   onRemove: (id: string) => void;
   onFinish: (id: string, f: Finish) => void;
+  onCondition: (id: string, c: Condition) => void;
   onContinue: () => void;
   onNewSession: () => void;
 }) {
@@ -93,6 +112,7 @@ export function SessionSummaryView({
       minBrl={minBrl}
       onRemove={() => onRemove(e.id)}
       onFinish={(f) => onFinish(e.id, f)}
+      onCondition={(c) => onCondition(e.id, c)}
     />
   );
 
@@ -143,8 +163,10 @@ export function SessionSummaryView({
         </div>
 
         <p className="muted small">
-          O app não detecta foil pela câmera: marque em cada carta se ela é {game.finishLabels.nonfoil},{' '}
-          {game.finishLabels.foil} ou {game.finishLabels.etched}. O preço, o total e a exportação se ajustam.
+          O app não detecta foil nem condição pela câmera: marque em cada carta o acabamento (
+          {game.finishLabels.nonfoil}, {game.finishLabels.foil} ou {game.finishLabels.etched}) e a condição (NM, SP, MP,
+          HP, DMG). O preço, o total e a exportação se ajustam. Condição abaixo de NM aplica um desconto aproximado
+          (SP 85%, MP 70%, HP 50%, DMG 35%).
         </p>
 
         {s.alerts.length === 0 && <p className="muted">Nenhuma carta passou do valor mínimo nesta sessão.</p>}
