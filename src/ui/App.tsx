@@ -58,6 +58,11 @@ function loadAlertSettings(): AlertSettings {
 }
 
 
+/** O texto lido é outro nome (ex.: em português), e não só uma face de "A // B"? */
+function isOtherName(readAs: string, cardName: string) {
+  return readAs !== cardName && !cardName.split(' // ').includes(readAs);
+}
+
 interface EditionView {
   cardName: string;
   result: EditionResult | null;
@@ -114,6 +119,8 @@ export function App() {
   const timesRef = useRef<number[]>([]);
   const footerPreviewRef = useRef<HTMLCanvasElement>(null);
   const copyRef = useRef<CopyInfo>({});
+  /** Último texto reconhecido de cada carta (ex.: "Relâmpago" → Lightning Bolt). */
+  const readNameRef = useRef(new Map<string, string>());
   const flowRef = useRef<AlertFlow | null>(null);
   if (!flowRef.current) {
     flowRef.current = new AlertFlow({
@@ -291,6 +298,8 @@ export function App() {
       }
     }
 
+    if (r.match) readNameRef.current.set(r.match.cardName, r.match.matchText);
+
     // Cartas "fechadas" nesta leitura: alerta (uma vez por carta) e entra na sessão.
     const severity = { none: 0, check: 1, yellow: 2, red: 3 } as const;
     // Correção que chega junto com o alerta original (mesma leitura): vira um só.
@@ -305,6 +314,8 @@ export function App() {
       const usdBrl = rateRef.current?.usdBrl ?? null;
       const data = { cardName: ev.cardName, ...ev.decision, price: ev.price, usdBrl, printing: ev.printing, set: ev.set };
       const lot = { finish: copyRef.current.finish, condition: copyRef.current.condition };
+      const readAs = readNameRef.current.get(ev.cardName);
+      const printedName = readAs && isOtherName(readAs, ev.cardName) ? readAs : undefined;
       if (ev.replaces) {
         // Edição lida depois do alerta: corrige a sessão; se subiu de nível, avisa de novo.
         const prev = [...sessionRef.current.entries].reverse().find((e) => e.cardName === ev.cardName);
@@ -319,7 +330,7 @@ export function App() {
         feedback.alert(ev.decision.level);
         setFlash({ level: ev.decision.level, id: performance.now() });
       }
-      setSession((s) => addEntry(s, { ...data, ...lot, at: Date.now() }));
+      setSession((s) => addEntry(s, { ...data, ...lot, printedName, at: Date.now() }));
     }
   }, []);
 
@@ -555,6 +566,9 @@ export function App() {
             </span>
           )}
         </div>
+        {read?.match && isOtherName(read.match.matchText, read.match.cardName) && (
+          <div className="muted small">lido como: {read.match.matchText}</div>
+        )}
         {read?.match && <EditionLine view={ed} hasPrintings={(prices.get(read.match.cardName)?.printings?.length ?? 0) > 1} />}
         {read?.match && <PriceLine info={shownPrice} rate={rate} game={game} />}
         {read?.match && lotLabel && <div className="muted small">preço considerando o lote: {lotLabel}</div>}

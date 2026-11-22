@@ -33,7 +33,10 @@ function EntryRow({
   return (
     <li className={`entry lvl-${effectiveLevel(e, minBrl)}`}>
       <div className="entry-main">
-        <strong>{e.cardName}</strong>
+        <strong>
+          {e.cardName}
+          {e.printedName && <span className="muted small"> ({e.printedName})</span>}
+        </strong>
         <span className="entry-price">
           {r.min === r.max ? formatBrl(r.max, e.usdBrl) : `${formatBrl(r.min, e.usdBrl)} – ${formatBrl(r.max, e.usdBrl)}`}
         </span>

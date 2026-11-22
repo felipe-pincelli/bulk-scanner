@@ -26,6 +26,8 @@ export interface SessionEntry {
   finish?: Finish;
   /** Condição informada pelo usuário (lote ou resumo). Sem valor = não informada. */
   condition?: Condition;
+  /** Nome como foi lido na carta, se diferente do oficial (ex.: "Relâmpago"). */
+  printedName?: string;
 }
 
 export interface Session {
@@ -135,7 +137,7 @@ export function sessionToText(s: SessionSummary, startedAt: number): string {
     return r.min === r.max ? formatBrl(r.max, e.usdBrl) : `${formatBrl(r.min, e.usdBrl)} a ${formatBrl(r.max, e.usdBrl)}`;
   };
   const line = (e: SessionEntry) =>
-    `• ${e.cardName}: ${range(e)}` +
+    `• ${e.cardName}${e.printedName ? ` (${e.printedName})` : ''}: ${range(e)}` +
     (e.finish && e.finish !== 'nonfoil' ? (e.finish === 'foil' ? ' [foil]' : ' [especial]') : '') +
     (e.condition && e.condition !== 'NM' ? ` [${e.condition}]` : '') +
     (e.printing

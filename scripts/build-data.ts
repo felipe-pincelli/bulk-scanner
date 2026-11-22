@@ -2,8 +2,9 @@
  * Gera os dados que o app usa e grava em public/data/ — um índice por jogo.
  * Roda no GitHub Actions a cada deploy e uma vez por dia.
  *
- * - Magic: baixa o "Default Cards" do Scryfall (~80 MB compactado, todas as
- *   impressões com preços). Regras do Scryfall (https://scryfall.com/docs/api/bulk-data):
+ * - Magic: baixa o "All Cards" do Scryfall (todas as impressões, em todos os
+ *   idiomas). Preços: das impressões em inglês. Nomes em português: viram
+ *   "apelidos" que apontam para o nome em inglês (ex.: "Relâmpago" → "Lightning Bolt"). Regras do Scryfall (https://scryfall.com/docs/api/bulk-data):
  *   usar os arquivos em massa, enviar User-Agent e Accept, no máximo 1x por dia.
  * - Pokémon: TCGCSV (cópia diária dos dados do TCGplayer) — ver scripts/pokemon.ts.
  * - Cotação USD → BRL (reserva caso o app não consiga buscar ao vivo).
@@ -25,6 +26,9 @@ const HEADERS = {
 
 interface ScryfallCard {
   name: string;
+  lang?: string;
+  printed_name?: string;
+  card_faces?: { printed_name?: string }[];
   flavor_name?: string;
   layout: string;
   games?: string[];
@@ -102,8 +106,10 @@ async function openCards(): Promise<{ chunks: AsyncIterable<Uint8Array | string>
   }
   type BulkItem = { type: string; updated_at: string };
   const list = await getJson<{ data: BulkItem[] }>('https://api.scryfall.com/bulk-data');
-  const meta = list.data.find((item) => item.type === 'default_cards');
-  if (!meta) throw new Error(`"default_cards" não encontrado em /bulk-data (${list.data.map((i) => i.type).join(', ')})`);
+  // "all_cards": todas as impressões em todos os idiomas (precisamos dos nomes em
+  // português). Continua sendo UM download por dia, como pede o Scryfall.
+  const meta = list.data.find((item) => item.type === 'all_cards');
+  if (!meta) throw new Error(`"all_cards" não encontrado em /bulk-data (${list.data.map((i) => i.type).join(', ')})`);
   // O link do arquivo pode vir na lista ou só nos detalhes do item, e o nome do
   // campo já variou entre versões da API. Procura nos dois lugares.
   const findUrl = (obj: Record<string, unknown>) =>
@@ -119,12 +125,13 @@ async function openCards(): Promise<{ chunks: AsyncIterable<Uint8Array | string>
   if (!url) throw new Error(`Link de download não encontrado: ${JSON.stringify(meta)}`);
   console.log(`Baixando ${url} …`);
   const res = await fetch(url, { headers: HEADERS });
-  if (!res.ok) throw new Error(`Download falhou: HTTP ${res.status}`);
-  const file = Buffer.from(await res.arrayBuffer());
-  // Arquivo .gz (compactado)? Os dois primeiros bytes de um gzip são 1f 8b.
-  const gzipped = file[0] === 0x1f && file[1] === 0x8b;
-  console.log(`Baixado: ${Math.round(file.length / 1e6)} MB${gzipped ? ' (compactado)' : ''}`);
-  const stream = Readable.from([file]);
+  if (!res.ok || !res.body) throw new Error(`Download falhou: HTTP ${res.status}`);
+  // Arquivo grande: processa enquanto baixa (sem guardar tudo na memória).
+  // ".gz" = compactado (o servidor não descompacta sozinho).
+  const gzipped = url.endsWith('.gz') && !res.headers.get('content-encoding');
+  const size = Number(res.headers.get('content-length') ?? 0);
+  console.log(`Tamanho: ${size ? Math.round(size / 1e6) + ' MB' : '?'}${gzipped ? ' (compactado)' : ''}`);
+  const stream = Readable.fromWeb(res.body as never);
   return { chunks: gzipped ? stream.pipe(createGunzip()) : stream, updatedAt: meta.updated_at };
 }
 
@@ -142,7 +149,12 @@ const num = (v: string | null | undefined) => (v ? Number(v) : null);
 
 async function buildMagic(builder: IndexBuilder): Promise<string> {
   const { chunks, updatedAt } = await openCards();
+  const started = Date.now();
   let total = 0;
+  const ptAliases = new Map<string, string>(); // nome em português → nome em inglês
+  // Cartas que só existem em outro idioma (ex.: promos japonesas): guarda a
+  // primeira impressão com preço, usada se não houver nenhuma em inglês.
+  const foreignOnly = new Map<string, ScryfallCard>();
   for await (const raw of streamJsonArray(chunks)) {
     const card = JSON.parse(raw) as ScryfallCard;
     total++;
@@ -151,6 +163,17 @@ async function buildMagic(builder: IndexBuilder): Promise<string> {
     // Cartas numeradas (ex.: "123/500"): tiragem minúscula, nunca aparecem em bulk
     // e distorcem o preço máximo (um Sol Ring numerado passa de US$ 3.000).
     if (card.promo_types?.includes('serialized')) continue;
+
+    if (card.lang && card.lang !== 'en') {
+      if (card.lang === 'pt') {
+        // Nome impresso em português (cartas de duas faces: o de cada face).
+        const printed = [card.printed_name, ...(card.card_faces ?? []).map((f) => f.printed_name)];
+        for (const n of printed) if (n && n !== card.name && !n.includes(' // ')) ptAliases.set(n, card.name);
+      }
+      const p = card.prices;
+      if ((p?.usd || p?.usd_foil || p?.usd_etched) && !foreignOnly.has(card.name)) foreignOnly.set(card.name, card);
+      continue;
+    }
 
     builder.addName(card.name);
     // "Godzilla Series" e similares: nome impresso diferente do oficial.
@@ -165,7 +188,23 @@ async function buildMagic(builder: IndexBuilder): Promise<string> {
       num(card.prices?.usd_etched),
     );
   }
-  console.log(`[magic] impressões lidas: ${total}`);
+  // Cartas sem nenhuma impressão em inglês: usa a estrangeira com preço.
+  for (const [name, card] of foreignOnly) {
+    if (builder.printings.has(name)) continue;
+    builder.addName(name);
+    builder.addPrinting(name, card.set, card.set_name, card.collector_number ?? '', num(card.prices?.usd), num(card.prices?.usd_foil), num(card.prices?.usd_etched));
+  }
+  // Apelidos em português (sem sobrescrever nomes oficiais em inglês).
+  let ptCount = 0;
+  for (const [pt, en] of ptAliases) {
+    if (builder.rows.has(pt) || !builder.rows.has(en)) continue;
+    builder.aliases[pt] = en;
+    ptCount++;
+  }
+  console.log(`[magic] impressões lidas: ${total} em ${Math.round((Date.now() - started) / 1000)} s · nomes em português: ${ptCount}`);
+  for (const pt of ['Relâmpago', 'Anel Solar', 'Fosso', 'Elfos de Llanowar', 'Contramágica']) {
+    if (builder.aliases[pt]) console.log(`  ${pt} → ${builder.aliases[pt]}`);
+  }
   // Amostra para conferência rápida no log do GitHub Actions.
   for (const name of ['Lightning Bolt', 'Sol Ring', 'Moat', 'Llanowar Elves', 'Fire // Ice']) {
     const r = builder.rows.get(name);

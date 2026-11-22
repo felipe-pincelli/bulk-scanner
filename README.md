@@ -165,6 +165,13 @@ botão vira "Continuar sessão" e o botão **Resumo** fica disponível no topo.
 
 ## 5. Preços e atualização dos dados
 
+**Nomes em português:** no Magic, vêm do próprio Scryfall (arquivo "All Cards",
+que tem as impressões em todos os idiomas: ~1 download por dia, como antes). No
+Pokémon, os nomes dos Pokémon são iguais em português; os de Treinadores e
+Energias ("Pesquisa de Professores") vêm do [TCGdex](https://tcgdex.dev). Os
+nomes em português são "apelidos" do nome oficial em inglês: o preço, a
+exportação e o resumo usam o nome em inglês (o resumo mostra os dois).
+
 **Pokémon:** os dados vêm do [TCGCSV](https://tcgcsv.com), uma cópia diária dos
 preços do TCGplayer, coleção por coleção. O índice guarda cada impressão com o
 número e o total da coleção (`063/198`), o preço normal, o de reverse holo/holo e
@@ -176,7 +183,7 @@ diferir em alguns sites.
 
 **Magic:**
 
-- **Fonte:** [Scryfall](https://scryfall.com), com os preços do TCGplayer em dólar.
+- **Fonte (Magic):** [Scryfall](https://scryfall.com), com os preços do TCGplayer em dólar.
   Para cada nome de carta, o app guarda o preço da impressão **mais barata**, da
   **mais cara** (incluindo foil), da mais cara **sem foil**, qual edição é a mais
   cara, e o preço de **cada impressão** (edição + número), usado na leitura do
@@ -311,8 +318,11 @@ app não muda.
 
 ## 10. Limitações conhecidas
 
-- **Só nomes em inglês.** Cartas em outros idiomas não são reconhecidas (e não
-  geram alarme falso).
+- **Idiomas: inglês e português.** Cartas em português são reconhecidas pelo nome
+  impresso ("Relâmpago" → Lightning Bolt) e o painel mostra "lido como: …". O
+  **preço usado é o da versão em inglês** (TCGplayer); no Brasil a versão em
+  português pode valer diferente. Outros idiomas (japonês etc.) não são
+  reconhecidos (e não geram alarme falso).
 - **Edição só em cartas de 2015 em diante:** cartas mais antigas não têm código
   no rodapé, então o app mostra a faixa de preço de todas as edições. O app
   também não detecta se a carta é **foil** (por isso o aviso "confira se é foil").
@@ -327,7 +337,7 @@ app não muda.
 
 ## 11. Próximos passos possíveis
 
-- Reconhecer nomes em outros idiomas (português, japonês…).
+- Reconhecer nomes em outros idiomas (espanhol, japonês…).
 - Empacotar com Capacitor para ganhar vibração no iPhone.
 - Adicionar Yu-Gi-Oh! (YGOPRODeck).
 
