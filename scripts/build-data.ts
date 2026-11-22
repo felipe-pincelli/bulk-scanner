@@ -208,7 +208,9 @@ async function main() {
         b.write(
           'public/data/pokemon-index.json',
           { game: 'pokemon', source: 'TCGCSV / TCGplayer (preços em USD)', pricesUpdatedAt, usdBrl },
-          testing ? 1 : 5000,
+          // Pokémon tem poucos NOMES (~4.500) e muitas versões de cada; a trava de
+          // cartas fica em scripts/pokemon.ts.
+          testing ? 1 : 2500,
         );
       } catch (e) {
         if (only === 'pokemon') throw e;

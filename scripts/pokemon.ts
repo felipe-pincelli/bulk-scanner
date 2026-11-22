@@ -121,5 +121,7 @@ export async function buildPokemon(builder: IndexBuilder): Promise<string> {
     }
   }
   console.log(`[pokemon] cartas lidas: ${cards}`);
+  // Trava de segurança: nunca publicar um índice quebrado (hoje são ~28 mil cartas).
+  if (!fixture && cards < 15000) throw new Error(`só ${cards} cartas lidas (esperado > 15000)`);
   return new Date().toISOString();
 }
