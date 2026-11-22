@@ -11,7 +11,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { IndexBuilder } from './lib/indexBuilder';
-import { cleanTcgName, findCategoryId, priceValue, productNumber, tcgGroups, type Price } from './lib/tcgcsv';
+import { findCategoryId, priceValue, productNumber, tcgGroups, type Price } from './lib/tcgcsv';
 
 type Variant = 'base' | 'parallel' | 'special';
 
@@ -28,7 +28,8 @@ const PARALLEL = /parallel|alternate art|alt[ .-]?art/i;
 function isPartOfName(full: string, index: number, inner: string): boolean {
   if (NUMBERING.test(inner) || PARALLEL.test(inner)) return false;
   const attached = index > 0 && full[index - 1] !== ' ';
-  return attached || inner.includes('.') || /!!|\.\.\./.test(inner);
+  // Ponto colado entre letras ("Daz.Bonez") é nome; "Vol. 1" é marcação.
+  return attached || /[A-Za-z]\.[A-Za-z]/.test(inner) || /!!|\.\.\./.test(inner);
 }
 
 /** Marcações de versão do nome do produto (sem as que fazem parte do nome). */
@@ -62,6 +63,7 @@ export function cleanOnePieceName(name: string): string {
     })
     .replace(/\s+-\s+[A-Z]{1,4}\d{0,3}-\d{2,3}[a-z]?\s*$/, '') // " - OP01-016"
     .replace(/\s+\(/g, '(') // "Mr.1 (Daz.Bonez)" e "Mr.1(Daz.Bonez)" são a mesma carta
+    .replace(/\.\s+(?=\d)/g, '.') // "Mr. 1" → "Mr.1"
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -85,7 +87,6 @@ export async function buildOnePiece(builder: IndexBuilder): Promise<string> {
   let cards = 0;
   const markSamples = new Set<string>();
   const keptParens = new Set<string>();
-  const diffSamples = new Set<string>();
   let skippedPrize = 0;
   for await (const { group: g, set, products, pricesByProduct } of tcgGroups(categoryId, fixture)) {
     groups++;
@@ -103,10 +104,7 @@ export async function buildOnePiece(builder: IndexBuilder): Promise<string> {
         skippedPrize++;
         continue;
       }
-      if (/\(/.test(name)) keptParens.add(prod.name);
-      // Diagnóstico: nomes em que a limpeza nova difere da antiga (só o começo).
-      const old = cleanTcgName(prod.name);
-      if (old !== name && !/\(/.test(name)) diffSamples.add(`${prod.name} → ${name} (antes: ${old})`);
+      if (/\(/.test(name)) keptParens.add(name);
       let entry = byNumber.get(number);
       if (!entry) byNumber.set(number, (entry = { name, base: [], parallel: [], special: [] }));
       if (variant === 'base') entry.name = name;
@@ -125,9 +123,8 @@ export async function buildOnePiece(builder: IndexBuilder): Promise<string> {
   }
   console.log(`[onepiece] coleções: ${groups} · produtos de cartas: ${cards}`);
   console.log(`[onepiece] exemplos de versões: ${[...markSamples].join(' | ')}`);
-  console.log(`[onepiece] nomes com parênteses mantidos: ${keptParens.size} · ${[...keptParens].slice(0, 60).join(' | ')}`);
+  console.log(`[onepiece] nomes com parênteses (parte do nome): ${keptParens.size} · ${[...keptParens].slice(0, 15).join(' | ')}`);
   console.log(`[onepiece] cartas de premiação ignoradas (≥ US$ ${MAX_PRICE}): ${skippedPrize}`);
-  console.log(`[onepiece] limpeza diferente da antiga: ${diffSamples.size} · ${[...diffSamples].slice(0, 12).join(' | ')}`);
   for (const name of ['Nami', 'Monkey.D.Luffy', 'Roronoa Zoro', 'Shanks', 'Yamato']) {
     const r = builder.rows.get(name);
     if (r) console.log(`  ${name}: US$ ${r[1]} – ${r[3]} · ${builder.printings.get(name)?.length ?? 0} impressões · mais cara: ${r[5]} (${r[6]})`);
