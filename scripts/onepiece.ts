@@ -103,7 +103,7 @@ export async function buildOnePiece(builder: IndexBuilder): Promise<string> {
         skippedPrize++;
         continue;
       }
-      if (/\(/.test(name) && keptParens.size < 8) keptParens.add(name);
+      if (/\(/.test(name)) keptParens.add(prod.name);
       // Diagnóstico: nomes em que a limpeza nova difere da antiga (só o começo).
       const old = cleanTcgName(prod.name);
       if (old !== name && !/\(/.test(name)) diffSamples.add(`${prod.name} → ${name} (antes: ${old})`);
@@ -125,7 +125,7 @@ export async function buildOnePiece(builder: IndexBuilder): Promise<string> {
   }
   console.log(`[onepiece] coleções: ${groups} · produtos de cartas: ${cards}`);
   console.log(`[onepiece] exemplos de versões: ${[...markSamples].join(' | ')}`);
-  console.log(`[onepiece] nomes com parênteses mantidos: ${[...keptParens].join(' | ')}`);
+  console.log(`[onepiece] nomes com parênteses mantidos: ${keptParens.size} · ${[...keptParens].slice(0, 60).join(' | ')}`);
   console.log(`[onepiece] cartas de premiação ignoradas (≥ US$ ${MAX_PRICE}): ${skippedPrize}`);
   console.log(`[onepiece] limpeza diferente da antiga: ${diffSamples.size} · ${[...diffSamples].slice(0, 12).join(' | ')}`);
   for (const name of ['Nami', 'Monkey.D.Luffy', 'Roronoa Zoro', 'Shanks', 'Yamato']) {
