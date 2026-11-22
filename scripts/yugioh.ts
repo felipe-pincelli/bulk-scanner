@@ -19,7 +19,7 @@ import { findCategoryId, getJson, priceValue, productNumber, tcgGroups, type Pri
 
 /** Raridades "especiais" que aparecem entre parênteses no nome do produto. */
 const SPECIAL =
-  /starlight|ghost|quarter century|collector|platinum|prismatic|ultimate|secret|gold|10000|pharaoh|duel terminal|premium|holographic|parallel|alternate art|alt art|ultra rare|super rare|rare/i;
+  /starlight|ghost|quarter century|collector|platinum|prismatic|ultimate|secret|gold|10000|pharaoh|duel terminal|premium|holographic|parallel|alternate art|alt art|emblazoned|ultra rare|super rare|rare/i;
 
 export function cleanYugiohName(name: string): string {
   return name
@@ -59,8 +59,13 @@ export async function buildYugioh(builder: IndexBuilder): Promise<string> {
   // marcações que a limpeza não pegou, e para os nomes em português.
   const ygo = await fetchYgopro(fixture?.ygopro);
   const official = new Set(ygo?.en.map((c) => c.name) ?? []);
+  // Mesma grafia ignorando símbolos/pontuação ("YummySnatchy" = "Yummy★Snatchy").
+  const key = (n: string) => n.normalize('NFD').replace(/[^A-Za-z0-9]/g, '').toLowerCase();
+  const officialByKey = new Map([...official].map((n) => [key(n), n]));
   const canonical = (raw: string, cleaned: string): string => {
     if (!official.size || official.has(cleaned)) return cleaned;
+    const same = officialByKey.get(key(cleaned));
+    if (same) return same;
     // Corta do fim, em " (" / " - " / " [", até achar um nome oficial.
     let cut = raw;
     for (;;) {
@@ -68,6 +73,8 @@ export async function buildYugioh(builder: IndexBuilder): Promise<string> {
       if (i <= 0) break;
       cut = cut.slice(0, i).trim();
       if (official.has(cut)) return cut;
+      const sameCut = officialByKey.get(key(cut));
+      if (sameCut) return sameCut;
     }
     return cleaned;
   };
