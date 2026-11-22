@@ -562,7 +562,9 @@ export function App() {
           {read?.match ? read.match.cardName : read ? '—' : ' '}
           {current && current.level !== 'none' && (
             <span className={`badge ${current.level}`}>
-              {current.level === 'check' && ed?.result?.printing ? 'confira se é foil' : levelLabel[current.level]}
+              {current.level === 'check' && ed?.result?.printing
+                ? `confira se é ${game.finishLabels.foil}`
+                : levelLabel[current.level]}
             </span>
           )}
         </div>

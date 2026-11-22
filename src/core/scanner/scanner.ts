@@ -223,7 +223,7 @@ export class Scanner {
           crop = cropForOcr(video, band, this.canvas, { rotateDeg: correctionDeg(o), scale });
           const t0 = performance.now();
           // Altura aproximada das letras no recorte (~45% da faixa do nome).
-          const hint = findTextRow(crop, NAME_BAND_PX * 0.45);
+          const hint = findTextRow(crop, NAME_BAND_PX * 0.45, game.nameHintSpan, game.nameIsTallestText);
           lines = await this.opts.engine.readLines(crop, hint);
           const t1 = performance.now();
           best = pickBest(lines, this.opts.matcher, minScore);

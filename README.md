@@ -1,7 +1,7 @@
 # Bulk Scanner
 
-App para caçar cartas valiosas no meio do bulk de **Magic: The Gathering** e
-**Pokémon TCG**.
+App para caçar cartas valiosas no meio do bulk de **Magic: The Gathering**,
+**Pokémon TCG** e **One Piece Card Game**.
 Você aponta a câmera, passa as cartas uma após a outra e o app avisa, com som e um
 flash de cor na tela inteira, quando aparece uma carta que vale mais que o mínimo
 que você definiu. Não é um app de coleção: o foco é velocidade.
@@ -52,7 +52,7 @@ disponível → Atualizar"**. Nada muda sozinho no meio de uma sessão.
 
 ## 2. Como usar
 
-0. Escolha o **jogo** no topo (Magic ou Pokémon). A escolha fica salva. O app
+0. Escolha o **jogo** no topo (Magic, Pokémon ou One Piece). A escolha fica salva. O app
    carrega só os dados daquele jogo e cada jogo tem a sua própria sessão. Para
    trocar, pare a sessão primeiro.
 1. Toque em **Iniciar sessão** e permita o uso da câmera. Esse toque também libera
@@ -181,6 +181,15 @@ mesmo sem o código impresso. A exportação "com edição" usa o formato do Pok
 TCG Live / Limitless (`1 Pikachu SVI 63`). As siglas vêm do TCGplayer e podem
 diferir em alguns sites.
 
+**One Piece:** também vem do TCGCSV (TCGplayer). No One Piece as versões
+alternativas (Parallel/Alternate Art, Manga, SP…) têm o **mesmo código** da carta
+comum (`OP11-041`); por isso cada código vira uma impressão com três preços,
+**normal / parallel / especial**, e você marca qual é no resumo (ou por lote),
+como o foil no Magic. O app procura o nome **embaixo** da carta (texto branco na
+faixa preta) e lê o código no canto inferior direito, que já identifica a coleção.
+A exportação "com código" sai no formato `1xOP11-041`, usado pelos montadores de
+deck e simuladores de One Piece. Só cartas em inglês.
+
 **Magic:**
 
 - **Fonte (Magic):** [Scryfall](https://scryfall.com), com os preços do TCGplayer em dólar.
@@ -266,6 +275,8 @@ npm run build
 scripts/              rodam fora do navegador
   build-data.ts         gera os índices de todos os jogos em public/data/ (roda no GitHub)
   pokemon.ts            Pokémon: TCGCSV → índice
+  onepiece.ts           One Piece: TCGCSV → índice (versões do mesmo código juntas)
+  lib/tcgcsv.ts         acesso ao TCGCSV (comum a Pokémon e One Piece)
   lib/indexBuilder.ts   formato comum dos índices
   copy-tesseract.ts     copia o motor de OCR → public/tesseract/
 .github/workflows/    publicação automática (GitHub Actions → GitHub Pages)
@@ -276,7 +287,7 @@ src/core/             TODA a lógica, sem interface (reaproveitável no Capacito
   edition/              rodapé: onde fica, leitura da edição/número, preço da impressão
   matching/             corretor de nomes (busca aproximada)
   scanner/              laço de leitura contínua e orientação automática
-  games/                um "provider" por jogo (magic/, pokemon/) + formato do índice
+  games/                um "provider" por jogo (magic/, pokemon/, onepiece/) + formato do índice
   prices/               índice de preços (IndexedDB) e cotação do dólar
   alerts/               regras de alerta, cooldown e fluxo (alertar já ou esperar a edição)
   session/              sessão, resumo e exportação

@@ -24,6 +24,8 @@ export class IndexBuilder {
   readonly printings = new Map<string, PrintingRow[]>();
   readonly sets: Record<string, string> = {};
   readonly aliases: Record<string, string> = {};
+  /** Guardar a impressão mesmo quando é a única (ex.: One Piece, para exportar o código). */
+  keepAllPrintings = false;
 
   /** Registra que existe uma carta com esse nome (mesmo sem preço). */
   addName(name: string): IndexRow {
@@ -74,7 +76,7 @@ export class IndexBuilder {
     for (const [name, list] of this.printings) {
       // Guarda as impressões quando há mais de uma, ou quando a única tem preço
       // foil/especial (para o usuário poder marcar "foil" no resumo).
-      if (list.length < 2 && list[0][3] === null && list[0][4] === null) continue;
+      if (!this.keepAllPrintings && list.length < 2 && list[0][3] === null && list[0][4] === null) continue;
       this.rows.get(name)![7] = list;
       printingCount += list.length;
     }

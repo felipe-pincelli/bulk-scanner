@@ -6,18 +6,20 @@
  *   idiomas). Preços: das impressões em inglês. Nomes em português: viram
  *   "apelidos" que apontam para o nome em inglês (ex.: "Relâmpago" → "Lightning Bolt"). Regras do Scryfall (https://scryfall.com/docs/api/bulk-data):
  *   usar os arquivos em massa, enviar User-Agent e Accept, no máximo 1x por dia.
- * - Pokémon: TCGCSV (cópia diária dos dados do TCGplayer) — ver scripts/pokemon.ts.
+ * - Pokémon e One Piece: TCGCSV (cópia diária dos dados do TCGplayer) — ver
+ *   scripts/pokemon.ts e scripts/onepiece.ts.
  * - Cotação USD → BRL (reserva caso o app não consiga buscar ao vivo).
  *
  * Uso: npm run data                       (todos os jogos)
  *      npm run data -- --game pokemon     (só um jogo)
- * Teste local: --file cards.json(.gz) (Magic), --pokemon-fixture arquivo.json
+ * Teste local: --file cards.json(.gz) (Magic), --pokemon-fixture / --onepiece-fixture arquivo.json
  */
 import { createReadStream, mkdirSync, writeFileSync } from 'node:fs';
 import { Readable } from 'node:stream';
 import { createGunzip } from 'node:zlib';
 import { IndexBuilder } from './lib/indexBuilder';
 import { buildPokemon } from './pokemon';
+import { buildOnePiece } from './onepiece';
 
 const HEADERS = {
   'User-Agent': 'BulkScanner/0.2 (personal project)',
@@ -243,7 +245,7 @@ async function main() {
   mkdirSync('public/data', { recursive: true });
   const gameArg = process.argv.indexOf('--game');
   const only = gameArg > 0 ? process.argv[gameArg + 1] : null;
-  const testing = process.argv.includes('--file') || process.argv.includes('--pokemon-fixture');
+  const testing = ['--file', '--pokemon-fixture', '--onepiece-fixture'].some((f) => process.argv.includes(f));
   const usdBrl = await fetchUsdBrl();
   console.log(`USD→BRL: ${usdBrl ?? 'indisponível'}`);
 
@@ -281,6 +283,25 @@ async function main() {
         if (only === 'pokemon') throw e;
         console.warn('[pokemon] ÍNDICE NÃO GERADO:', (e as Error).message);
         process.exitCode = 0;
+      }
+    }
+  }
+
+  // One Piece: se falhar, avisa mas não derruba os outros jogos.
+  if (!only || only === 'onepiece') {
+    if (!testing || process.argv.includes('--onepiece-fixture')) {
+      try {
+        const b = new IndexBuilder();
+        b.keepAllPrintings = true; // o código ("OP11-041") é o que os sites de One Piece importam
+        const pricesUpdatedAt = await buildOnePiece(b);
+        b.write(
+          'public/data/onepiece-index.json',
+          { game: 'onepiece', source: 'TCGCSV / TCGplayer (preços em USD)', pricesUpdatedAt, usdBrl },
+          testing ? 1 : 500,
+        );
+      } catch (e) {
+        if (only === 'onepiece') throw e;
+        console.warn('[onepiece] ÍNDICE NÃO GERADO:', (e as Error).message);
       }
     }
   }

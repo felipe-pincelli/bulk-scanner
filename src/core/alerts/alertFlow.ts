@@ -32,6 +32,12 @@ export interface CardEvent {
   replaces?: boolean;
 }
 
+/** Carta com uma impressão só: já se sabe qual é, sem ler o rodapé. */
+function onlyPrinting(price: PriceInfo | null): { printing: Printing | null; set: string | null } {
+  const only = price?.printings?.length === 1 ? price.printings[0] : null;
+  return { printing: only, set: only?.set ?? null };
+}
+
 interface Pending {
   cardName: string;
   price: PriceInfo;
@@ -110,7 +116,7 @@ export class AlertFlow {
       const price = priceForPrintings(r.candidates);
       return { cardName: p.cardName, decision: this.decide(price), price, printing: null, set: r.set };
     }
-    return { cardName: p.cardName, decision: p.fallback, price: p.price, printing: null, set: null };
+    return { cardName: p.cardName, decision: p.fallback, price: p.price, ...onlyPrinting(p.price) };
   }
 
   /** Última leitura de rodapé, por carta (pode chegar antes da carta ser confirmada). */
@@ -145,7 +151,7 @@ export class AlertFlow {
     if (appeared) {
       const price = this.deps.getPrice(appeared) ?? null;
       const decision = this.decide(price);
-      const event: CardEvent = { cardName: appeared, decision, price, printing: null, set: null };
+      const event: CardEvent = { cardName: appeared, decision, price, ...onlyPrinting(price) };
       if (price && this.needsEdition(appeared)) {
         const known = this.lastEdition?.cardName === appeared ? this.lastEdition.best : null;
         const pending: Pending = { cardName: appeared, price, fallback: decision, best: known, reads: 0, mode: 'wait' };

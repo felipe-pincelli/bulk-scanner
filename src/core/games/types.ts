@@ -87,6 +87,14 @@ export interface GameProvider {
    * carta não precisar estar perfeitamente alinhada.
    */
   nameSearchBand: Region;
+  /**
+   * Quando o nome fica sobre fundo ESCURO (não há "barra clara" para recortar),
+   * que parte da largura da faixa de busca o leitor de linha deve olhar (frações).
+   * Ex.: One Piece, nome centralizado → [0.28, 0.72], longe do círculo de LIFE.
+   */
+  nameHintSpan?: [number, number];
+  /** O nome é o texto de letras mais altas da faixa de busca (ex.: One Piece). */
+  nameIsTallestText?: boolean;
   /** Caracteres que podem aparecer num nome (ajuda o OCR a não "inventar" símbolos). */
   nameCharWhitelist: string;
   /** Arquivo do índice, relativo à pasta do site (gerado por scripts/build-data.ts). */

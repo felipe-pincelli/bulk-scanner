@@ -84,6 +84,18 @@ export function parseFooter(text: string, printings: Printing[]): EditionResult 
     return full ? fullNumbers.has(full) : numbers.has(stripZeros(p.number));
   };
 
+  // --- Código com hífen (One Piece: "OP11-041", "ST01-001", "P-001"): já inclui a
+  // coleção e identifica a carta sozinho. Aceita espaços em volta do hífen e letras
+  // trocadas pelo OCR ("0P11-04I").
+  const codes = new Set<string>();
+  for (const m of text.matchAll(/([A-Za-z0-9|]{1,5})\s?-\s?([0-9OIlSBZ|]{2,3})/g)) codes.add(fold(`${m[1]}-${m[2]}`));
+  if (codes.size && printings.some((p) => p.number.includes('-'))) {
+    const byCode = printings.filter((p) => p.number.includes('-') && codes.has(fold(p.number)));
+    if (byCode.length && byCode.every((p) => p.set === byCode[0].set)) {
+      return { printing: byCode.length === 1 ? byCode[0] : null, set: byCode[0].set, candidates: byCode };
+    }
+  }
+
   let candidates: Printing[];
   let set: string | null = null;
   if (foundSets.size === 1) {

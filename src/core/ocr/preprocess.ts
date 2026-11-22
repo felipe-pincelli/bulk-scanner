@@ -84,7 +84,14 @@ export interface LineHint {
   barFound: boolean;
 }
 
-export function findTextRow(canvas: HTMLCanvasElement, textPx: number): LineHint | null {
+export function findTextRow(
+  canvas: HTMLCanvasElement,
+  textPx: number,
+  /** Parte da largura a usar quando não há barra clara (frações), ex.: [0.28, 0.72]. */
+  darkSpan?: [number, number],
+  /** Escolher a linha de letras mais altas (em vez da com mais "cara de texto"). */
+  tallest = false,
+): LineHint | null {
   const { width: w, height: h } = canvas;
   if (h < textPx * 1.5) return null;
   const px = canvas.getContext('2d', { willReadFrequently: true })!.getImageData(0, 0, w, h).data;
@@ -113,8 +120,37 @@ export function findTextRow(canvas: HTMLCanvasElement, textPx: number): LineHint
     }
   }
   if (best < win * 2) return null; // quase nenhuma borda: não há texto
+  let tallestH = 0;
+  if (tallest) {
+    // Blocos de linhas seguidas com texto; o mais alto é o de letras maiores.
+    const thr = Math.max(...rowScore) * 0.2;
+    let bestH = 0;
+    for (let y = 0; y < h; ) {
+      if (rowScore[y] < thr) {
+        y++;
+        continue;
+      }
+      const start = y;
+      let gap = 0;
+      let end = y;
+      for (; y < h && gap <= 2; y++) {
+        if (rowScore[y] >= thr) {
+          end = y;
+          gap = 0;
+        } else gap++;
+      }
+      const blockH = end - start + 1;
+      if (blockH > bestH && blockH >= win * 0.5) {
+        bestH = blockH;
+        bestY = Math.round((start + end) / 2 - win / 2);
+      }
+    }
+    tallestH = bestH;
+  }
   // Faixa um pouco maior que as letras (pega acentos e partes de baixo).
-  const height = Math.min(h, Math.round(textPx * 2.2));
+  // (No modo "mais alto", a faixa acompanha a altura medida das letras, para não
+  // pegar pedaços das linhas vizinhas.)
+  const height = Math.min(h, Math.round(tallestH ? Math.max(tallestH * 1.5, win) : textPx * 2.2));
   const top = Math.max(0, Math.min(h - height, Math.round(bestY + win / 2 - height / 2)));
 
   // Na horizontal: fica só com o trecho CLARO da faixa (a barra do nome).
@@ -149,6 +185,14 @@ export function findTextRow(canvas: HTMLCanvasElement, textPx: number): LineHint
       bestStart = start;
     }
   }
-  if (bestLen < textPx * 4) return { left: 0, top, width: w, height, barFound: false }; // barra escura: usa tudo
+  if (bestLen < textPx * 4) {
+    // Barra escura (texto claro): usa a parte da largura indicada pelo jogo, ou tudo.
+    if (darkSpan) {
+      const left = Math.round(PAD + darkSpan[0] * (w - 2 * PAD));
+      const right = Math.round(PAD + darkSpan[1] * (w - 2 * PAD));
+      return { left, top, width: right - left, height, barFound: false };
+    }
+    return { left: 0, top, width: w, height, barFound: false };
+  }
   return { left: bestStart, top, width: bestLen, height, barFound: true };
 }
