@@ -26,8 +26,8 @@ export const onepieceProvider: GameProvider = {
   nameHintSpan: [0.28, 0.72],
   // Na faixa de baixo, o nome é o texto mais alto ("LEADER" e o tipo são menores).
   nameIsTallestText: true,
-  // Dígitos/pontuação: "Monkey.D.Luffy", "Trafalgar Law", "DON!!".
-  nameCharWhitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 ',-.&!",
+  // Dígitos/pontuação: "Monkey.D.Luffy", "Mr.1 (Daz.Bonez)", "DON!!".
+  nameCharWhitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 ',-.&!()",
   indexFile: 'data/onepiece-index.json',
   parseIndex: (json) => parseIndex(json),
   geometry: {

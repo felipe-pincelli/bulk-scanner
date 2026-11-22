@@ -11,19 +11,40 @@
  */
 import { readFileSync } from 'node:fs';
 import { IndexBuilder } from './lib/indexBuilder';
-import { cleanTcgName, findCategoryId, priceValue, productNumber, tcgGroups, type Price } from './lib/tcgcsv';
+import { findCategoryId, priceValue, productNumber, tcgGroups, type Price } from './lib/tcgcsv';
 
 type Variant = 'base' | 'parallel' | 'special';
 
+/** Parênteses que são marcação do TCGplayer (versão/numeração), e não parte do nome. */
+const NUMBERING = /^\s*(\d+|[A-Z]{1,4}\d{0,3}-\d{2,3}[a-z]?)\s*$/i; // "(060)", "(OP17-119)"
+const PARALLEL = /parallel|alternate art|alt[ .-]?art/i;
+const SPECIAL =
+  /manga|\bsp\b|\btr\b|gold|special|super|full art|foil|promo|textured|serial|signature|pre-?release|winner|judge|treasure|wanted|reprint|box topper|jolly roger|stamp|anniversary|championship|celebration/i;
+const isMark = (m: string) => NUMBERING.test(m) || PARALLEL.test(m) || SPECIAL.test(m);
+
 /** Classifica o produto pela marcação que o TCGplayer põe no nome. */
 export function variantOf(name: string): Variant {
-  const marks = [...name.matchAll(/\(([^)]*)\)|\[([^\]]*)\]/g)].map((m) => (m[1] ?? m[2]).toLowerCase());
-  // Números entre parênteses ("(001)") só diferenciam produtos: não é variante.
-  const real = marks.filter((m) => !/^\d+$/.test(m.trim()));
-  if (!real.length) return 'base';
-  if (real.some((m) => /parallel|alternate art|alt art/.test(m))) return 'parallel';
-  return 'special';
+  const marks = [...name.matchAll(/\(([^)]*)\)|\[([^\]]*)\]/g)].map((m) => m[1] ?? m[2]);
+  if (marks.some((m) => PARALLEL.test(m))) return 'parallel';
+  if (marks.some((m) => SPECIAL.test(m))) return 'special';
+  return 'base';
 }
+
+/**
+ * Nome impresso na carta. Tira só as marcações de versão do TCGplayer; parênteses
+ * que fazem parte do nome ficam: "Mr.1 (Daz.Bonez)", "Mr.2.Bon.Kurei(Bentham)".
+ */
+export function cleanOnePieceName(name: string): string {
+  return name
+    .replace(/\s*\[[^\]]*\]/g, '')
+    .replace(/\s*\(([^)]*)\)/g, (all, inner: string) => (isMark(inner) ? '' : all))
+    .replace(/\s+-\s+[A-Z]{1,4}\d{0,3}-\d{2,3}[a-z]?\s*$/, '') // " - OP01-016"
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Cartas de premiação (troféus, US$ 10 mil+) nunca aparecem em bulk e distorcem o máximo. */
+const MAX_PRICE = 10000;
 
 /** Preço de um produto: versão normal; se só existir foil, a foil. */
 function productPrice(prices: Price[]): number | null {
@@ -40,6 +61,8 @@ export async function buildOnePiece(builder: IndexBuilder): Promise<string> {
   let groups = 0;
   let cards = 0;
   const markSamples = new Set<string>();
+  const keptParens = new Set<string>();
+  let skippedPrize = 0;
   for await (const { group: g, set, products, pricesByProduct } of tcgGroups(categoryId, fixture)) {
     groups++;
     // Junta as versões de cada código ("OP11-041") numa impressão só.
@@ -47,11 +70,16 @@ export async function buildOnePiece(builder: IndexBuilder): Promise<string> {
     for (const prod of products) {
       const number = productNumber(prod);
       if (!number) continue; // produtos selados (boosters, caixas)
-      const name = cleanTcgName(prod.name);
+      const name = cleanOnePieceName(prod.name);
       if (!name) continue;
       const variant = variantOf(prod.name);
       if (variant !== 'base' && markSamples.size < 15) markSamples.add(prod.name);
       const price = productPrice(pricesByProduct.get(prod.productId) ?? []);
+      if (price !== null && price >= MAX_PRICE) {
+        skippedPrize++;
+        continue;
+      }
+      if (/\(/.test(name) && keptParens.size < 8) keptParens.add(name);
       let entry = byNumber.get(number);
       if (!entry) byNumber.set(number, (entry = { name, base: [], parallel: [], special: [] }));
       if (variant === 'base') entry.name = name;
@@ -70,6 +98,8 @@ export async function buildOnePiece(builder: IndexBuilder): Promise<string> {
   }
   console.log(`[onepiece] coleções: ${groups} · produtos de cartas: ${cards}`);
   console.log(`[onepiece] exemplos de versões: ${[...markSamples].join(' | ')}`);
+  console.log(`[onepiece] nomes com parênteses mantidos: ${[...keptParens].join(' | ')}`);
+  console.log(`[onepiece] cartas de premiação ignoradas (≥ US$ ${MAX_PRICE}): ${skippedPrize}`);
   for (const name of ['Nami', 'Monkey.D.Luffy', 'Roronoa Zoro', 'Shanks', 'Yamato']) {
     const r = builder.rows.get(name);
     if (r) console.log(`  ${name}: US$ ${r[1]} – ${r[3]} · ${builder.printings.get(name)?.length ?? 0} impressões · mais cara: ${r[5]} (${r[6]})`);
