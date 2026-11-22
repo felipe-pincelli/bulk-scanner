@@ -8,13 +8,20 @@ jobs:
     steps:
       - name: pokemontcg.io v2
         run: |
-          curl -s -m 60 -w '\nHTTP %{http_code} %{time_total}s\n' 'https://api.pokemontcg.io/v2/cards?q=name:pikachu&pageSize=2&select=id,name,number,supertype,set,tcgplayer,cardmarket' | head -c 3500; echo
-          curl -s -m 60 -o /dev/null -w 'totalCount page: HTTP %{http_code}\n' 'https://api.pokemontcg.io/v2/cards?pageSize=1'
-          curl -s -m 60 'https://api.pokemontcg.io/v2/cards?pageSize=1&select=id' | head -c 300; echo
+          for i in 1 2 3; do
+            curl -s -m 60 -w '\nHTTP %{http_code} %{time_total}s\n' 'https://api.pokemontcg.io/v2/cards?q=name:pikachu&pageSize=2&select=id,name,number,supertype,set,tcgplayer' | head -c 2500; echo; sleep 5
+          done
       - name: tcgdex
         run: |
-          curl -s -m 60 -w '\nHTTP %{http_code}\n' 'https://api.tcgdex.net/v2/en/cards/swsh3-136' | head -c 3000; echo
-          curl -s -m 60 -w '\nHTTP %{http_code}\n' 'https://api.tcgdex.net/v2/en/cards?name=pikachu' | head -c 600; echo
-      - name: pokemon-tcg-data (GitHub)
+          for i in 1 2; do
+            curl -s -m 60 -w '\nHTTP %{http_code}\n' 'https://api.tcgdex.net/v2/en/cards/swsh3-136' | head -c 2500; echo; sleep 5
+          done
+      - name: tcgcsv (TCGplayer, categoria 3 = Pokémon)
         run: |
-          curl -s -m 60 -w '\nHTTP %{http_code}\n' 'https://raw.githubusercontent.com/PokemonTCG/pokemon-tcg-data/master/sets/en.json' | head -c 800; echo
+          curl -s -m 60 -w '\nHTTP %{http_code}\n' 'https://tcgcsv.com/tcgplayer/3/groups' | head -c 1200; echo
+          G=$(curl -s -m 60 'https://tcgcsv.com/tcgplayer/3/groups' | python3 -c "import sys,json; d=json.load(sys.stdin)['results']; g=[x for x in d if 'Scarlet & Violet' == x['name'] or x['name'].startswith('SV01')]; print((g or d)[0]['groupId'])")
+          echo "groupId=$G"
+          curl -s -m 60 "https://tcgcsv.com/tcgplayer/3/$G/products" | python3 -c "import sys,json; d=json.load(sys.stdin); print('total', d.get('totalItems')); r=[x for x in d['results'] if 'Pikachu' in x['name']][:2] or d['results'][:2]; print(json.dumps(r, indent=1)[:2500])"
+          curl -s -m 60 "https://tcgcsv.com/tcgplayer/3/$G/prices" | python3 -c "import sys,json; d=json.load(sys.stdin); print(json.dumps(d['results'][:4], indent=1))"
+          curl -s -m 60 -w '\nHTTP %{http_code}\n' 'https://tcgcsv.com/last-updated.txt'
+          curl -s -m 60 -o /dev/null -w 'archive HTTP %{http_code} size %{size_download}\n' -I 'https://tcgcsv.com/archive/tcgplayer/prices-2026-11-20.ppmd.7z'
