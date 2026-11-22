@@ -55,6 +55,24 @@ export async function buildYugioh(builder: IndexBuilder): Promise<string> {
   const categoryId = fixture ? 0 : await findCategoryId(/yu-?gi-?oh/i);
   console.log(`[yugioh] categoria TCGCSV: ${categoryId}`);
 
+  // Lista oficial de nomes (YGOPRODeck): usada para corrigir nomes de produto com
+  // marcações que a limpeza não pegou, e para os nomes em português.
+  const ygo = await fetchYgopro(fixture?.ygopro);
+  const official = new Set(ygo?.en.map((c) => c.name) ?? []);
+  const canonical = (raw: string, cleaned: string): string => {
+    if (!official.size || official.has(cleaned)) return cleaned;
+    // Corta do fim, em " (" / " - " / " [", até achar um nome oficial.
+    let cut = raw;
+    for (;;) {
+      const i = Math.max(cut.lastIndexOf(' ('), cut.lastIndexOf(' - '), cut.lastIndexOf(' ['));
+      if (i <= 0) break;
+      cut = cut.slice(0, i).trim();
+      if (official.has(cut)) return cut;
+    }
+    return cleaned;
+  };
+  const unmatched = new Set<string>();
+
   let groups = 0;
   let cards = 0;
   let skippedPrize = 0;
@@ -64,8 +82,9 @@ export async function buildYugioh(builder: IndexBuilder): Promise<string> {
     for (const prod of products) {
       const number = productNumber(prod);
       if (!number) continue; // produtos selados
-      const name = cleanYugiohName(prod.name);
+      const name = canonical(prod.name, cleanYugiohName(prod.name));
       if (!name) continue;
+      if (official.size && !official.has(name)) unmatched.add(prod.name);
       const { unl, first } = productPrices(pricesByProduct.get(prod.productId) ?? []);
       if ((unl ?? 0) >= MAX_PRICE || (first ?? 0) >= MAX_PRICE) {
         skippedPrize++;
@@ -93,7 +112,8 @@ export async function buildYugioh(builder: IndexBuilder): Promise<string> {
     }
   }
   console.log(`[yugioh] coleções: ${groups} · produtos de cartas: ${cards} · premiação ignorada: ${skippedPrize}`);
-  await addPortugueseNames(builder, fixture?.ygopro);
+  console.log(`[yugioh] produtos sem nome oficial correspondente: ${unmatched.size} · ${[...unmatched].slice(0, 25).join(' | ')}`);
+  if (ygo) addPortugueseNames(builder, ygo);
   for (const name of ['Blue-Eyes White Dragon', 'Dark Magician', 'Ash Blossom & Joyous Spring', 'Pot of Greed']) {
     const r = builder.rows.get(name);
     if (r) console.log(`  ${name}: US$ ${r[1]} – ${r[3]} · ${builder.printings.get(name)?.length ?? 0} impressões · mais cara: ${r[5]} (${r[6]})`);
@@ -103,13 +123,30 @@ export async function buildYugioh(builder: IndexBuilder): Promise<string> {
 }
 
 type YgoCard = { id: number; name: string };
+type YgoLists = { en: YgoCard[]; pt: YgoCard[] };
 
-/** Nomes em português pelo YGOPRODeck (mesmo id em inglês e português). */
-async function addPortugueseNames(builder: IndexBuilder, fixture?: { en: YgoCard[]; pt: YgoCard[] }) {
+/** Listas do YGOPRODeck em inglês e português (mesmo id). Null se indisponível. */
+async function fetchYgopro(fixture?: YgoLists): Promise<YgoLists | null> {
+  if (fixture) return fixture;
   try {
     const url = 'https://db.ygoprodeck.com/api/v7/cardinfo.php';
-    const en: YgoCard[] = fixture?.en ?? (await getJson<{ data: YgoCard[] }>(url)).data;
-    const pt: YgoCard[] = fixture?.pt ?? (await getJson<{ data: YgoCard[] }>(`${url}?language=pt`)).data;
+    const en = (await getJson<{ data: YgoCard[] }>(url)).data;
+    let pt: YgoCard[] = [];
+    try {
+      pt = (await getJson<{ data: YgoCard[] }>(`${url}?language=pt`)).data;
+    } catch (e) {
+      console.warn('[yugioh] sem nomes em português hoje:', (e as Error).message);
+    }
+    return { en, pt };
+  } catch (e) {
+    console.warn('[yugioh] YGOPRODeck indisponível hoje:', (e as Error).message);
+    return null;
+  }
+}
+
+/** Nomes em português pelo YGOPRODeck (mesmo id em inglês e português). */
+function addPortugueseNames(builder: IndexBuilder, { en, pt }: YgoLists) {
+  {
     const enById = new Map(en.map((c) => [c.id, c.name]));
     let added = 0;
     for (const c of pt) {
@@ -120,7 +157,5 @@ async function addPortugueseNames(builder: IndexBuilder, fixture?: { en: YgoCard
       builder.aliases[c.name] = english;
     }
     console.log(`[yugioh] nomes em português: ${added} (de ${pt.length} cartas no YGOPRODeck)`);
-  } catch (e) {
-    console.warn('[yugioh] sem nomes em português hoje:', (e as Error).message);
   }
 }
