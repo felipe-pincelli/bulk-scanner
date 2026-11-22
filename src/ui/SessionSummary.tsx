@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { ExportPanel } from './ExportPanel';
+import type { GameProvider } from '../core/games/types';
 import {
   formatBrl,
   sessionToText,
@@ -13,9 +14,8 @@ import {
  * e ações (remover alerta falso, copiar lista, continuar, nova sessão).
  */
 const brl = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
-const finish: Record<string, string> = { foil: ' foil', etched: ' foil etched', nonfoil: '', '': '' };
 
-function EntryRow({ e, onRemove }: { e: SessionEntry; onRemove: () => void }) {
+function EntryRow({ e, onRemove, game }: { e: SessionEntry; onRemove: () => void; game: GameProvider }) {
   const p = e.price;
   const single = p?.minUsd === p?.maxUsd;
   return (
@@ -32,7 +32,7 @@ function EntryRow({ e, onRemove }: { e: SessionEntry; onRemove: () => void }) {
           : e.set
             ? `${p?.maxSetName || e.set.toUpperCase()} (${e.set.toUpperCase()}) · versão não identificada`
             : p?.maxSetName
-              ? `Edição não identificada · mais cara: ${p.maxSetName}${finish[p.maxFinish] ?? ''}`
+              ? `Edição não identificada · mais cara: ${p.maxSetName}${p.maxFinish && p.maxFinish !== 'nonfoil' ? ` (${game.finishLabels[p.maxFinish]})` : ''}`
               : 'Sem preço'}
         <button className="link" onClick={onRemove} aria-label={`Remover ${e.cardName}`}>
           remover
@@ -43,11 +43,13 @@ function EntryRow({ e, onRemove }: { e: SessionEntry; onRemove: () => void }) {
 }
 
 export function SessionSummaryView({
+  game,
   session,
   onRemove,
   onContinue,
   onNewSession,
 }: {
+  game: GameProvider;
   session: Session;
   onRemove: (id: string) => void;
   onContinue: () => void;
@@ -81,7 +83,7 @@ export function SessionSummaryView({
     <div className="summary" role="dialog" aria-label="Resumo da sessão">
       <div className="summary-inner">
         <header>
-          <h2>Resumo da sessão</h2>
+          <h2>Resumo da sessão · {game.shortName}</h2>
           <p className="muted">
             {new Date(session.startedAt).toLocaleString('pt-BR')} · {s.scanned} cartas lidas
             {s.durationMin > 0 && ` em ${s.durationMin} min`}
@@ -105,7 +107,7 @@ export function SessionSummaryView({
         {s.alerts.length === 0 && <p className="muted">Nenhuma carta passou do valor mínimo nesta sessão.</p>}
         <ol className="entries">
           {s.alerts.map((e) => (
-            <EntryRow key={e.id} e={e} onRemove={() => onRemove(e.id)} />
+            <EntryRow key={e.id} e={e} game={game} onRemove={() => onRemove(e.id)} />
           ))}
         </ol>
 
@@ -118,13 +120,13 @@ export function SessionSummaryView({
             </p>
             <ol className="entries">
               {s.checks.map((e) => (
-                <EntryRow key={e.id} e={e} onRemove={() => onRemove(e.id)} />
+                <EntryRow key={e.id} e={e} game={game} onRemove={() => onRemove(e.id)} />
               ))}
             </ol>
           </details>
         )}
 
-        <ExportPanel entries={session.entries} />
+        <ExportPanel entries={session.entries} game={game} />
 
         <div className="summary-actions">
           <button onClick={copy} disabled={s.scanned === 0}>

@@ -1,29 +1,10 @@
-import type { CardIndex, GameProvider, NameEntry, PriceInfo, Printing } from '../types';
-
-/** Formato gravado por scripts/build-data.ts. */
-interface MagicIndexFile {
-  version: number;
-  source: string;
-  pricesUpdatedAt: string;
-  builtAt: string;
-  usdBrl: number | null;
-  rows: [
-    string,
-    number | null,
-    number | null,
-    number | null,
-    string,
-    string,
-    PriceInfo['maxFinish'],
-    [string, string, number | null, number | null, number | null][]?,
-  ][];
-  aliases: Record<string, string>;
-  sets?: Record<string, string>;
-}
+import { parseIndex } from '../indexFormat';
+import type { GameProvider } from '../types';
 
 export const magicProvider: GameProvider = {
   id: 'magic',
   displayName: 'Magic: The Gathering',
+  shortName: 'Magic',
   cardAspect: 63 / 88,
   // Faixa do nome no frame moderno (usada como referência de tamanho das letras).
   nameRegion: { x: 0.065, y: 0.04, w: 0.72, h: 0.065 },
@@ -32,42 +13,20 @@ export const magicProvider: GameProvider = {
   nameSearchBand: { x: 0, y: 0, w: 1, h: 0.28 },
   nameCharWhitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz ',-",
   indexFile: 'data/magic-index.json',
-
-  parseIndex(json): CardIndex {
-    const file = json as MagicIndexFile;
-    const entries: NameEntry[] = [];
-    const prices = new Map<string, PriceInfo>();
-
-    const sets = file.sets ?? {};
-    for (const [name, minUsd, maxNonfoilUsd, maxUsd, maxSet, maxSetName, maxFinish, rawPrintings] of file.rows) {
-      const printings: Printing[] | undefined = rawPrintings?.map(([set, number, usd, usdFoil, usdEtched]) => ({
-        set,
-        setName: sets[set] ?? set.toUpperCase(),
-        number,
-        usd,
-        usdFoil,
-        usdEtched,
-      }));
-      prices.set(name, { minUsd, maxNonfoilUsd, maxUsd, maxSet, maxSetName, maxFinish, printings });
-      entries.push({ matchText: name, cardName: name });
-      // Cartas de duas faces/split ("Fire // Ice"): na carta física aparece só
-      // o nome de uma face, então cada face também vira uma entrada.
-      if (name.includes(' // ')) {
-        for (const face of name.split(' // ')) entries.push({ matchText: face, cardName: name });
-      }
-    }
-    // Nomes impressos alternativos (ex.: série Godzilla).
-    for (const [alias, name] of Object.entries(file.aliases ?? {})) {
-      entries.push({ matchText: alias, cardName: name });
-    }
-
-    return {
-      entries,
-      prices,
-      source: file.source,
-      pricesUpdatedAt: file.pricesUpdatedAt,
-      builtAt: file.builtAt,
-      usdBrl: file.usdBrl,
-    };
+  parseIndex: (json) => parseIndex(json, { splitFaces: true }),
+  geometry: {
+    barLeft: 0.045, // a barra do nome começa a 4,5% da largura
+    barWidth: 0.91, // e ocupa 91% da largura
+    nameCenterY: 0.0725,
+    // Canto inferior esquerdo (frame 2015+): "117/384 R" e "2X2 • EN".
+    footer: { x: 0.03, y: 0.895, w: 0.62, h: 0.09 },
+    footerTextH: 0.012,
   },
+  finishLabels: { nonfoil: 'normal', foil: 'foil', etched: 'foil etched', '': '' },
+  exportWithSet: {
+    label: 'Lista com edição — Moxfield, Archidekt, ManaBox',
+    line: (count, name, set, number) => `${count} ${name} (${set.toUpperCase()})${number ? ` ${number}` : ''}`,
+  },
+  exportPlainLabel: 'Lista simples (só nome) — qualquer site (MTGGoldfish, TappedOut…)',
+  importHint: 'No site, procure "Import" / "Importar" e cole a lista. Ex.: Moxfield → Collection ou um deck novo → Import.',
 };

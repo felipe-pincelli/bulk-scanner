@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { countExport, exportContent, type ExportFormat, type ExportScope } from '../core/session/exportList';
 import type { SessionEntry } from '../core/session/session';
+import type { GameProvider } from '../core/games/types';
 import { loadPref, savePref } from '../core/settings/settings';
 
 /** Bloco "Exportar" do resumo: escolhe cartas e formato; copia, baixa ou compartilha. */
@@ -17,7 +18,7 @@ async function copyText(text: string) {
   }
 }
 
-export function ExportPanel({ entries }: { entries: SessionEntry[] }) {
+export function ExportPanel({ entries, game }: { entries: SessionEntry[]; game: GameProvider }) {
   const [scope, setScope] = useState<ExportScope>(() => loadPref('exportScope', 'alerts') as ExportScope);
   const [format, setFormat] = useState<ExportFormat>(() => {
     const f = loadPref('exportFormat', 'textWithSet');
@@ -26,7 +27,7 @@ export function ExportPanel({ entries }: { entries: SessionEntry[] }) {
   const [done, setDone] = useState('');
 
   const count = countExport(entries, scope);
-  const content = exportContent(entries, scope, format);
+  const content = exportContent(entries, scope, format, game);
   const file = () => new File([content.bom ? '\uFEFF' : '', content.text], content.filename, { type: content.mime });
   const canShareFile = typeof navigator.canShare === 'function' && navigator.canShare({ files: [file()] });
 
@@ -57,7 +58,7 @@ export function ExportPanel({ entries }: { entries: SessionEntry[] }) {
 
   return (
     <details className="export">
-      <summary>Exportar (Moxfield, Archidekt, planilha…)</summary>
+      <summary>Exportar ({game.id === 'magic' ? 'Moxfield, Archidekt, planilha…' : 'lista, planilha…'})</summary>
       <div className="settings">
         <label>
           Quais cartas
@@ -82,8 +83,8 @@ export function ExportPanel({ entries }: { entries: SessionEntry[] }) {
               savePref('exportFormat', e.target.value);
             }}
           >
-            <option value="textWithSet">Lista com edição — Moxfield, Archidekt, ManaBox</option>
-            <option value="text">Lista simples (só nome) — qualquer site (MTGGoldfish, TappedOut…)</option>
+            <option value="textWithSet">{game.exportWithSet.label}</option>
+            <option value="text">{game.exportPlainLabel}</option>
             <option value="csv">CSV — planilha (Excel, Google Sheets) com preços</option>
           </select>
         </label>
@@ -91,7 +92,7 @@ export function ExportPanel({ entries }: { entries: SessionEntry[] }) {
         <p className="muted small">
           {format === 'csv'
             ? 'Abra o arquivo .csv no Excel, Google Sheets ou Numbers.'
-            : 'No site, procure "Import" / "Importar" e cole a lista. Ex.: Moxfield → Collection ou um deck novo → Import.'}{' '}
+            : game.importHint}{' '}
           {format === 'textWithSet' && 'Cartas sem edição identificada saem só com o nome. '}
           {count} {count === 1 ? 'carta' : 'cartas'}.
         </p>

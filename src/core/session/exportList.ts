@@ -1,4 +1,5 @@
 import type { AlertLevel } from '../alerts/alertRules';
+import type { GameProvider } from '../games/types';
 import type { SessionEntry } from './session';
 
 /**
@@ -28,13 +29,13 @@ interface Grouped {
   name: string;
   count: number;
   entry: SessionEntry; // uma das leituras (para preço/edição)
-  /** " (2X2) 117", " (2X2)" ou "" */
+  /** Chave de edição usada para agrupar ("2x2|117", "2x2|" ou "") */
   setSuffix: string;
 }
 
 function setSuffix(e: SessionEntry): string {
-  if (e.printing) return ` (${e.printing.set.toUpperCase()}) ${e.printing.number}`;
-  if (e.set) return ` (${e.set.toUpperCase()})`;
+  if (e.printing) return `${e.printing.set}|${e.printing.number}`;
+  if (e.set) return `${e.set}|`;
   return '';
 }
 
@@ -58,9 +59,13 @@ export function countExport(entries: SessionEntry[], scope: ExportScope): number
   return group(entries, scope).reduce((n, g) => n + g.count, 0);
 }
 
-export function toDecklistText(entries: SessionEntry[], scope: ExportScope, withSet = false): string {
+export function toDecklistText(entries: SessionEntry[], scope: ExportScope, game: GameProvider, withSet = false): string {
   return group(entries, scope, withSet)
-    .map((g) => `${g.count} ${g.name}${g.setSuffix}`)
+    .map((g) => {
+      const e = g.entry;
+      const set = e.printing?.set ?? e.set;
+      return withSet && set ? game.exportWithSet.line(g.count, g.name, set, e.printing?.number ?? null) : `${g.count} ${g.name}`;
+    })
     .join('\n');
 }
 
@@ -90,13 +95,13 @@ export function toCsv(entries: SessionEntry[], scope: ExportScope): string {
   return [header, ...rows].map((r) => r.map(csvCell).join(';')).join('\n');
 }
 
-export function exportContent(entries: SessionEntry[], scope: ExportScope, format: ExportFormat) {
+export function exportContent(entries: SessionEntry[], scope: ExportScope, format: ExportFormat, game: GameProvider) {
   const date = new Date().toISOString().slice(0, 10);
   return format === 'csv'
-    ? { text: toCsv(entries, scope), filename: `bulk-scanner-${date}.csv`, mime: 'text/csv', bom: true }
+    ? { text: toCsv(entries, scope), filename: `bulk-scanner-${game.id}-${date}.csv`, mime: 'text/csv', bom: true }
     : {
-        text: toDecklistText(entries, scope, format === 'textWithSet'),
-        filename: `bulk-scanner-${date}.txt`,
+        text: toDecklistText(entries, scope, game, format === 'textWithSet'),
+        filename: `bulk-scanner-${game.id}-${date}.txt`,
         mime: 'text/plain',
         bom: false,
       };

@@ -14,6 +14,9 @@ import { CardPresence } from './cardPresence';
  *   leitura do rodapé. Edição identificada → alerta com o preço exato. Não
  *   identificada a tempo → alerta como antes (azul "confira a edição", ou pelo
  *   preço máximo no critério "qualquer edição").
+ * - Se a carta já vale o mínimo mas alguma edição vale 5× (amarelo que pode ser
+ *   vermelho), alerta amarelo NA HORA e continua lendo o rodapé; se for a edição
+ *   cara, manda uma correção (`replaces`) que sobe o alerta para vermelho.
  */
 export interface CardEvent {
   cardName: string;
@@ -24,6 +27,8 @@ export interface CardEvent {
   printing: Printing | null;
   /** Edição identificada (mesmo sem saber a versão exata). */
   set: string | null;
+  /** true = corrige o evento anterior desta mesma carta (edição lida depois). */
+  replaces?: boolean;
 }
 
 interface Pending {
@@ -32,6 +37,8 @@ interface Pending {
   fallback: AlertDecision;
   best: EditionResult | null;
   reads: number;
+  /** 'wait' = alerta ainda não saiu; 'refine' = já saiu, só corrige se mudar. */
+  mode: 'wait' | 'refine';
 }
 
 export class AlertFlow {
@@ -55,20 +62,35 @@ export class AlertFlow {
     return this.isAmbiguous(price) ? price.printings : null;
   }
 
+  /** Nível (0 nada, 1 amarelo, 2 vermelho) que um valor em US$ atingiria. */
+  private tier(usd: number | null): number {
+    const rate = this.deps.getRate() ?? 0;
+    const min = this.deps.getSettings().minBrl;
+    const brl = (usd ?? 0) * rate;
+    return brl >= min * 5 ? 2 : brl >= min ? 1 : 0;
+  }
+
+  /** Ambíguo: a versão mais barata e a mais cara caem em níveis de alerta diferentes. */
   private isAmbiguous(price: PriceInfo): boolean {
-    const rate = this.deps.getRate();
+    if (!this.deps.getRate()) return false;
     const s = this.deps.getSettings();
-    if (!rate) return false;
     const maxUsd = s.includeFoil ? price.maxUsd : (price.maxNonfoilUsd ?? price.maxUsd);
-    // Ambíguo: a versão mais barata NÃO chega no mínimo, mas alguma versão chega.
-    return (price.minUsd ?? 0) * rate < s.minBrl && (maxUsd ?? 0) * rate >= s.minBrl;
+    return this.tier(price.minUsd) !== this.tier(maxUsd);
   }
 
   private decide(price: PriceInfo | null): AlertDecision {
     return evaluateAlert(price ?? undefined, this.deps.getRate(), this.deps.getSettings());
   }
 
-  private eventFor(p: Pending): CardEvent {
+  private eventFor(p: Pending): CardEvent | null {
+    const ev = this.resolve(p);
+    if (p.mode === 'wait') return ev;
+    // Modo "refinar": só manda correção se a edição foi lida e mudou o resultado.
+    if (!ev.printing && !ev.set) return null;
+    return { ...ev, replaces: true };
+  }
+
+  private resolve(p: Pending): CardEvent {
     const r = p.best;
     if (r?.printing) {
       const price = priceForPrintings([r.printing]);
@@ -104,18 +126,30 @@ export class AlertFlow {
 
     const appeared = this.presence.update(read.match?.cardName ?? null, read.confirmed);
     // Outra carta apareceu: fecha a pendente com o que tiver.
+    const push = (ev: CardEvent | null) => ev && events.push(ev);
     if (this.pending && appeared) {
-      events.push(this.eventFor(this.pending));
+      push(this.eventFor(this.pending));
       this.pending = null;
     }
 
     if (appeared) {
       const price = this.deps.getPrice(appeared) ?? null;
       const decision = this.decide(price);
+      const event: CardEvent = { cardName: appeared, decision, price, printing: null, set: null };
       if (price && this.needsEdition(appeared)) {
-        this.pending = { cardName: appeared, price, fallback: decision, best: null, reads: 0 };
+        const known = this.lastEdition?.cardName === appeared ? this.lastEdition.best : null;
+        const pending: Pending = { cardName: appeared, price, fallback: decision, best: known, reads: 0, mode: 'wait' };
+        if (known?.printing) {
+          // O rodapé já foi lido antes da confirmação: alerta direto com o preço exato.
+          push(this.resolve(pending));
+        } else {
+          // Já é amarelo/vermelho de qualquer jeito? Alerta agora e só refina depois.
+          const alertsAnyway = decision.level === 'yellow' || decision.level === 'red';
+          if (alertsAnyway) push(event);
+          this.pending = { ...pending, mode: alertsAnyway ? 'refine' : 'wait' };
+        }
       } else {
-        events.push({ cardName: appeared, decision, price, printing: null, set: null });
+        push(event);
       }
     }
 
@@ -126,7 +160,7 @@ export class AlertFlow {
       p.reads++;
       // Fecha quando: edição exata identificada, rodapé desistiu, ou esperou demais.
       if (p.best?.printing || e?.done || p.reads > (this.deps.maxWaitReads ?? 6)) {
-        events.push(this.eventFor(p));
+        push(this.eventFor(p));
         this.pending = null;
       }
     }

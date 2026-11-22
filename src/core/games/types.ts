@@ -56,9 +56,27 @@ export interface CardIndex {
   usdBrl: number | null;
 }
 
+/**
+ * Proporções da carta usadas para achar o RODAPÉ (edição/número) a partir da
+ * barra do nome. Tudo em frações da carta.
+ */
+export interface CardGeometry {
+  /** Onde começa a faixa clara que contém o nome, e que largura ela tem. */
+  barLeft: number;
+  barWidth: number;
+  /** Centro vertical do texto do nome. */
+  nameCenterY: number;
+  /** Região do rodapé com número/edição. */
+  footer: Region;
+  /** Altura das letras do rodapé. */
+  footerTextH: number;
+}
+
 export interface GameProvider {
   id: string;
   displayName: string;
+  /** Nome curto para botões/menus. */
+  shortName: string;
   /** Largura ÷ altura da carta física (Magic: 63 mm ÷ 88 mm). */
   cardAspect: number;
   /** Onde fica o nome na carta (usado para calcular o tamanho das letras). */
@@ -75,4 +93,13 @@ export interface GameProvider {
   indexFile: string;
   /** Converte o arquivo do índice no formato comum a todos os jogos. */
   parseIndex(json: unknown): CardIndex;
+  geometry: CardGeometry;
+  /** Como chamar as variantes de preço neste jogo (ex.: foil / reverse holo). */
+  finishLabels: Record<PriceInfo['maxFinish'], string>;
+  /** Exportação "com edição": formato de uma linha e nome do formato. */
+  exportWithSet: { label: string; line: (count: number, name: string, set: string, number: string | null) => string };
+  /** Exportação simples (só nome): nome do formato. */
+  exportPlainLabel: string;
+  /** Dica de onde importar a lista. */
+  importHint: string;
 }

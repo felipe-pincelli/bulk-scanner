@@ -1,42 +1,27 @@
 /**
- * Gera os dados que o app usa e grava em public/data/.
+ * Gera os dados que o app usa e grava em public/data/ — um índice por jogo.
  * Roda no GitHub Actions a cada deploy e uma vez por dia.
  *
- * 1. Baixa o "Default Cards" do Scryfall (~80 MB compactado: todas as impressões de
- *    todas as cartas, com preços) e gera um ÍNDICE ENXUTO: uma linha por nome de carta com
- *    o menor e o maior preço entre as impressões (com e sem foil).
- * 2. Busca a cotação USD → BRL (fica de reserva caso o app não consiga buscar ao vivo).
+ * - Magic: baixa o "Default Cards" do Scryfall (~80 MB compactado, todas as
+ *   impressões com preços). Regras do Scryfall (https://scryfall.com/docs/api/bulk-data):
+ *   usar os arquivos em massa, enviar User-Agent e Accept, no máximo 1x por dia.
+ * - Pokémon: TCGCSV (cópia diária dos dados do TCGplayer) — ver scripts/pokemon.ts.
+ * - Cotação USD → BRL (reserva caso o app não consiga buscar ao vivo).
  *
- * Regras do Scryfall (https://scryfall.com/docs/api/bulk-data): usar os arquivos
- * em massa em vez de muitas chamadas, enviar User-Agent e Accept, e não baixar
- * mais de uma vez por dia (os preços só mudam uma vez por dia).
- *
- * Para testar com um arquivo local: npm run data -- --file caminho/para/cards.json
+ * Uso: npm run data                       (todos os jogos)
+ *      npm run data -- --game pokemon     (só um jogo)
+ * Teste local: --file cards.json(.gz) (Magic), --pokemon-fixture arquivo.json
  */
 import { createReadStream, mkdirSync, writeFileSync } from 'node:fs';
 import { Readable } from 'node:stream';
 import { createGunzip } from 'node:zlib';
+import { IndexBuilder } from './lib/indexBuilder';
+import { buildPokemon } from './pokemon';
 
 const HEADERS = {
   'User-Agent': 'BulkScanner/0.2 (personal project)',
   Accept: 'application/json',
 };
-
-/** Formato de cada linha do índice (arrays em vez de objetos = arquivo bem menor). */
-export type IndexRow = [
-  name: string,
-  minUsd: number | null, // impressão mais barata (sem foil; se não houver, foil)
-  maxNonfoilUsd: number | null, // impressão sem foil mais cara
-  maxUsd: number | null, // impressão mais cara, incluindo foil/etched
-  maxSet: string, // edição da impressão mais cara (código, ex.: "lea")
-  maxSetName: string,
-  maxFinish: 'nonfoil' | 'foil' | 'etched' | '',
-  // Cada impressão com preço: [edição, nº de colecionador, usd, usd foil, usd etched].
-  // Só para cartas com 2+ impressões com preço (com uma só, a faixa já é exata).
-  printings?: PrintingRow[],
-];
-
-export type PrintingRow = [set: string, number: string, usd: number | null, foil: number | null, etched: number | null];
 
 interface ScryfallCard {
   name: string;
@@ -155,16 +140,9 @@ async function fetchUsdBrl(): Promise<number | null> {
 
 const num = (v: string | null | undefined) => (v ? Number(v) : null);
 
-async function main() {
-  mkdirSync('public/data', { recursive: true });
+async function buildMagic(builder: IndexBuilder): Promise<string> {
   const { chunks, updatedAt } = await openCards();
-
-  const rows = new Map<string, IndexRow>();
-  const printings = new Map<string, PrintingRow[]>();
-  const sets: Record<string, string> = {}; // código → nome da edição
-  const aliases: Record<string, string> = {};
   let total = 0;
-
   for await (const raw of streamJsonArray(chunks)) {
     const card = JSON.parse(raw) as ScryfallCard;
     total++;
@@ -174,79 +152,71 @@ async function main() {
     // e distorcem o preço máximo (um Sol Ring numerado passa de US$ 3.000).
     if (card.promo_types?.includes('serialized')) continue;
 
-    let row = rows.get(card.name);
-    if (!row) rows.set(card.name, (row = [card.name, null, null, null, '', '', '']));
+    builder.addName(card.name);
     // "Godzilla Series" e similares: nome impresso diferente do oficial.
-    if (card.flavor_name && card.flavor_name !== card.name) aliases[card.flavor_name] = card.name;
+    if (card.flavor_name && card.flavor_name !== card.name) builder.aliases[card.flavor_name] = card.name;
+    builder.addPrinting(
+      card.name,
+      card.set,
+      card.set_name,
+      card.collector_number ?? '',
+      num(card.prices?.usd),
+      num(card.prices?.usd_foil),
+      num(card.prices?.usd_etched),
+    );
+  }
+  console.log(`[magic] impressões lidas: ${total}`);
+  // Amostra para conferência rápida no log do GitHub Actions.
+  for (const name of ['Lightning Bolt', 'Sol Ring', 'Moat', 'Llanowar Elves', 'Fire // Ice']) {
+    const r = builder.rows.get(name);
+    if (r) console.log(`  ${name}: US$ ${r[1]} – ${r[3]} (sem foil até ${r[2]}) · mais cara: ${r[5]} ${r[6]}`);
+  }
+  return updatedAt;
+}
 
-    const usd = num(card.prices?.usd);
-    const foil = num(card.prices?.usd_foil);
-    const etched = num(card.prices?.usd_etched);
-    if (usd !== null || foil !== null || etched !== null) {
-      sets[card.set] = card.set_name;
-      let list = printings.get(card.name);
-      if (!list) printings.set(card.name, (list = []));
-      list.push([card.set, card.collector_number ?? '', usd, foil, etched]);
-    }
+async function main() {
+  mkdirSync('public/data', { recursive: true });
+  const gameArg = process.argv.indexOf('--game');
+  const only = gameArg > 0 ? process.argv[gameArg + 1] : null;
+  const testing = process.argv.includes('--file') || process.argv.includes('--pokemon-fixture');
+  const usdBrl = await fetchUsdBrl();
+  console.log(`USD→BRL: ${usdBrl ?? 'indisponível'}`);
 
-    if (usd !== null) {
-      if (row[1] === null || usd < row[1]) row[1] = usd;
-      if (row[2] === null || usd > row[2]) row[2] = usd;
+  // Magic: se falhar, o deploy falha (e o site continua com a versão anterior).
+  if (!only || only === 'magic') {
+    if (!testing || process.argv.includes('--file')) {
+      const b = new IndexBuilder();
+      const pricesUpdatedAt = await buildMagic(b);
+      b.write(
+        'public/data/magic-index.json',
+        { game: 'magic', source: 'Scryfall (preços TCGplayer em USD)', pricesUpdatedAt, usdBrl },
+        testing ? 1 : 20000,
+      );
     }
-    for (const [price, finish] of [
-      [usd, 'nonfoil'],
-      [foil, 'foil'],
-      [etched, 'etched'],
-    ] as const) {
-      if (price !== null && (row[3] === null || price > row[3])) {
-        row[3] = price;
-        row[4] = card.set;
-        row[5] = card.set_name;
-        row[6] = finish;
+  }
+
+  // Pokémon: se falhar, avisa mas não derruba o deploy do Magic.
+  if (!only || only === 'pokemon') {
+    if (!testing || process.argv.includes('--pokemon-fixture')) {
+      try {
+        const b = new IndexBuilder();
+        const pricesUpdatedAt = await buildPokemon(b);
+        for (const name of ['Pikachu', 'Charizard ex', 'Umbreon VMAX', 'Professor\'s Research']) {
+          const r = b.rows.get(name);
+          if (r) console.log(`  ${name}: US$ ${r[1]} – ${r[3]} · ${b.printings.get(name)?.length ?? 0} impressões · mais cara: ${r[5]}`);
+        }
+        b.write(
+          'public/data/pokemon-index.json',
+          { game: 'pokemon', source: 'TCGCSV / TCGplayer (preços em USD)', pricesUpdatedAt, usdBrl },
+          testing ? 1 : 5000,
+        );
+      } catch (e) {
+        if (only === 'pokemon') throw e;
+        console.warn('[pokemon] ÍNDICE NÃO GERADO:', (e as Error).message);
+        process.exitCode = 0;
       }
     }
   }
-  // Cartas que só existem em foil: o "mais barato" é o foil mais barato.
-  for (const row of rows.values()) if (row[1] === null && row[3] !== null) row[1] = row[3];
-  // Impressões individuais (para identificar a edição pelo rodapé da carta).
-  let printingCount = 0;
-  for (const [name, list] of printings) {
-    if (list.length < 2) continue;
-    rows.get(name)![7] = list;
-    printingCount += list.length;
-  }
-
-  // Trava de segurança: nunca publicar um índice vazio/quebrado.
-  const minNames = process.argv.includes('--file') ? 1 : 20000;
-  if (rows.size < minNames) {
-    throw new Error(`Índice com só ${rows.size} nomes (esperado > ${minNames}). Nada foi publicado.`);
-  }
-
-  const usdBrl = await fetchUsdBrl();
-  const index = {
-    version: 2,
-    game: 'magic',
-    source: 'Scryfall (preços TCGplayer em USD)',
-    pricesUpdatedAt: updatedAt,
-    builtAt: new Date().toISOString(),
-    usdBrl,
-    rows: [...rows.values()].sort((a, b) => a[0].localeCompare(b[0])),
-    aliases,
-    sets,
-  };
-  const json = JSON.stringify(index);
-  writeFileSync('public/data/magic-index.json', json);
-  // Amostra para conferência rápida no log do GitHub Actions.
-  for (const name of ['Lightning Bolt', 'Sol Ring', 'Moat', 'Llanowar Elves', 'Fire // Ice']) {
-    const r = rows.get(name);
-    if (r) console.log(`  ${name}: US$ ${r[1]} – ${r[3]} (sem foil até ${r[2]}) · mais cara: ${r[5]} ${r[6]}`);
-  }
-  const withPrice = index.rows.filter((r) => r[3] !== null).length;
-  console.log(
-    `Impressões lidas: ${total} · nomes: ${rows.size} (${withPrice} com preço) · apelidos: ${Object.keys(aliases).length}` +
-      ` · impressões no índice: ${printingCount} · edições: ${Object.keys(sets).length}` +
-      ` · arquivo: ${(json.length / 1e6).toFixed(1)} MB · USD→BRL: ${usdBrl ?? 'indisponível'}`,
-  );
 }
 
 main().catch((err) => {

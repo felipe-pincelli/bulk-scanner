@@ -1,6 +1,7 @@
 # Bulk Scanner
 
-App para caçar cartas valiosas no meio do bulk de Magic: The Gathering.
+App para caçar cartas valiosas no meio do bulk de **Magic: The Gathering** e
+**Pokémon TCG**.
 Você aponta a câmera, passa as cartas uma após a outra e o app avisa, com som e um
 flash de cor na tela inteira, quando aparece uma carta que vale mais que o mínimo
 que você definiu. Não é um app de coleção: o foco é velocidade.
@@ -51,6 +52,9 @@ disponível → Atualizar"**. Nada muda sozinho no meio de uma sessão.
 
 ## 2. Como usar
 
+0. Escolha o **jogo** no topo (Magic ou Pokémon). A escolha fica salva. O app
+   carrega só os dados daquele jogo e cada jogo tem a sua própria sessão. Para
+   trocar, pare a sessão primeiro.
 1. Toque em **Iniciar sessão** e permita o uso da câmera. Esse toque também libera
    o som (exigência do iPhone) e mantém a tela ligada durante a sessão.
 2. Coloque a carta **dentro do quadrado** (cantos brancos), em pé, deitada ou de
@@ -140,6 +144,17 @@ botão vira "Continuar sessão" e o botão **Resumo** fica disponível no topo.
 
 ## 5. Preços e atualização dos dados
 
+**Pokémon:** os dados vêm do [TCGCSV](https://tcgcsv.com), uma cópia diária dos
+preços do TCGplayer, coleção por coleção. O índice guarda cada impressão com o
+número e o total da coleção (`063/198`), o preço normal, o de reverse holo/holo e
+o de 1ª edição (cartas antigas). No rodapé da carta o app lê esse número, que fica
+à esquerda nas cartas novas e à direita nas antigas, e assim identifica a coleção
+mesmo sem o código impresso. A exportação "com edição" usa o formato do Pokémon
+TCG Live / Limitless (`1 Pikachu SVI 63`). As siglas vêm do TCGplayer e podem
+diferir em alguns sites.
+
+**Magic:**
+
 - **Fonte:** [Scryfall](https://scryfall.com), com os preços do TCGplayer em dólar.
   Para cada nome de carta, o app guarda o preço da impressão **mais barata**, da
   **mais cara** (incluindo foil), da mais cara **sem foil**, qual edição é a mais
@@ -221,7 +236,9 @@ npm run build
 
 ```
 scripts/              rodam fora do navegador
-  build-data.ts         Scryfall → índice enxuto em public/data/ (roda no GitHub)
+  build-data.ts         gera os índices de todos os jogos em public/data/ (roda no GitHub)
+  pokemon.ts            Pokémon: TCGCSV → índice
+  lib/indexBuilder.ts   formato comum dos índices
   copy-tesseract.ts     copia o motor de OCR → public/tesseract/
 .github/workflows/    publicação automática (GitHub Actions → GitHub Pages)
 public/icons/         ícones do app
@@ -231,7 +248,7 @@ src/core/             TODA a lógica, sem interface (reaproveitável no Capacito
   edition/              rodapé: onde fica, leitura da edição/número, preço da impressão
   matching/             corretor de nomes (busca aproximada)
   scanner/              laço de leitura contínua e orientação automática
-  games/                um "provider" por jogo (hoje só magic/)
+  games/                um "provider" por jogo (magic/, pokemon/) + formato do índice
   prices/               índice de preços (IndexedDB) e cotação do dólar
   alerts/               regras de alerta, cooldown e fluxo (alertar já ou esperar a edição)
   session/              sessão, resumo e exportação
@@ -240,9 +257,9 @@ src/core/             TODA a lógica, sem interface (reaproveitável no Capacito
 src/ui/               interface (React): App, resumo, exportação, aviso de versão
 ```
 
-**Adicionar outro jogo** (Pokémon, Yu-Gi-Oh!): criar `src/core/games/<jogo>/`
+**Adicionar outro jogo** (ex.: Yu-Gi-Oh!): criar `src/core/games/<jogo>/`
 implementando o contrato `GameProvider` (`src/core/games/types.ts`), registrá-lo
-em `games/registry.ts` e gerar o índice dele no `build-data.ts`.
+em `games/registry.ts` e gerar o índice dele em `scripts/` com o `IndexBuilder`.
 
 **Vibração no iPhone (Capacitor):** criar outra implementação de `Feedback`
 (`src/core/platform/feedback.ts`) que também chama o plugin Haptics. O resto do
@@ -291,7 +308,7 @@ app não muda.
 
 - Reconhecer nomes em outros idiomas (português, japonês…).
 - Empacotar com Capacitor para ganhar vibração no iPhone.
-- Adicionar Pokémon TCG e Yu-Gi-Oh!.
+- Adicionar Yu-Gi-Oh! (YGOPRODeck).
 
 ---
 

@@ -28,23 +28,24 @@ export interface Session {
   entries: SessionEntry[];
 }
 
-const KEY = 'session:current';
+/** Uma sessão por jogo. (Magic mantém a chave antiga, de antes de existir o seletor.) */
+const keyFor = (gameId: string) => (gameId === 'magic' ? 'session:current' : `session:${gameId}`);
 
 export function newSession(): Session {
   return { startedAt: Date.now(), entries: [] };
 }
 
-export async function loadSession(): Promise<Session> {
+export async function loadSession(gameId: string): Promise<Session> {
   try {
-    return (await kvGet<Session>(KEY)) ?? newSession();
+    return (await kvGet<Session>(keyFor(gameId))) ?? newSession();
   } catch {
     return newSession();
   }
 }
 
-export async function saveSession(session: Session): Promise<void> {
+export async function saveSession(gameId: string, session: Session): Promise<void> {
   try {
-    await kvSet(KEY, session);
+    await kvSet(keyFor(gameId), session);
   } catch {
     /* sem IndexedDB: a sessão vale só enquanto a página estiver aberta */
   }
@@ -53,6 +54,18 @@ export async function saveSession(session: Session): Promise<void> {
 export function addEntry(session: Session, entry: Omit<SessionEntry, 'id'>): Session {
   const id = `${entry.at}-${Math.random().toString(36).slice(2, 7)}`;
   return { ...session, entries: [...session.entries, { ...entry, id }] };
+}
+
+/** Substitui a última leitura desta carta (quando a edição foi lida depois do alerta). */
+export function replaceLastEntry(session: Session, entry: Omit<SessionEntry, 'id' | 'at'>): Session {
+  const entries = [...session.entries];
+  for (let i = entries.length - 1; i >= 0; i--) {
+    if (entries[i].cardName === entry.cardName) {
+      entries[i] = { ...entries[i], ...entry };
+      return { ...session, entries };
+    }
+  }
+  return session;
 }
 
 export function removeEntry(session: Session, id: string): Session {

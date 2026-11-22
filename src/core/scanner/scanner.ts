@@ -1,6 +1,6 @@
 import { subRect, type Rect } from '../camera/geometry';
 import type { GameProvider, Printing } from '../games/types';
-import { estimateCard, FOOTER_TEXT_H, footerRegion } from '../edition/footer';
+import { estimateCard, footerRegion, ghostCard } from '../edition/footer';
 import { parseFooter, type EditionResult } from '../edition/parseFooter';
 import { normalize, type FuzzyMatcher, type MatchResult } from '../matching/fuzzyMatcher';
 import type { OcrEngine, OcrLine } from '../ocr/ocrEngine';
@@ -133,6 +133,14 @@ export class Scanner {
     this.opts.matcher = matcher;
   }
 
+  /** Troca o jogo (só com a leitura parada). */
+  setGame(game: GameProvider) {
+    this.opts.game = game;
+    this.edition = null;
+    this.lastName = null;
+    this.streak = 0;
+  }
+
   setAutoRotate(on: boolean) {
     this.opts.autoRotate = on;
     if (!on) this.goodOrientation = null;
@@ -169,11 +177,15 @@ export class Scanner {
     let result: EditionResult | null = null;
     let crop: HTMLCanvasElement | null = null;
     let rawText = '';
-    const card = estimateCard(hint, this.opts.game.nameSearchBand, scale * zone.w);
-    const region = card && footerRegion(card);
-    if (card && region) {
+    const { game } = this.opts;
+    // Tamanho/posição da carta: pela faixa do nome; senão, pela silhueta na tela.
+    // Alterna entre os dois nas tentativas, caso a primeira estimativa erre.
+    const fromBar = estimateCard(hint, game.nameSearchBand, scale * zone.w, game.geometry, game.cardAspect);
+    const card = fromBar && state.attempts % 2 === 1 ? fromBar : ghostCard(game.cardAspect);
+    const region = footerRegion(card, game.geometry);
+    if (region) {
       const rect = subRect(zone, rotateRegion(region, orientation));
-      const footerScale = Math.min(4, FOOTER_TEXT_PX / (FOOTER_TEXT_H * card.h * zone.h));
+      const footerScale = Math.min(4, FOOTER_TEXT_PX / (game.geometry.footerTextH * card.h * zone.h));
       crop = cropForOcr(video, rect, this.footerCanvas, {
         rotateDeg: correctionDeg(orientation),
         scale: footerScale,

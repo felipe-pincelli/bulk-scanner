@@ -60,16 +60,29 @@ export function parseFooter(text: string, printings: Printing[]): EditionResult 
     }
   }
 
-  // --- Número de colecionador: "117", "0117", "117/384", "117a".
-  const numbers = new Set<string>();
+  // --- Número de colecionador: "117", "0117", "117a", e "063/198" (Pokémon:
+  // número + total da coleção — combinado com o nome, quase sempre é único).
+  const digitize = (t: string) =>
+    t.replace(/[Oo]/g, '0').replace(/[Il|]/g, '1').replace(/S/g, '5').replace(/B/g, '8').replace(/Z/g, '2');
+  const numbers = new Set<string>(); // só o número ("117")
+  const fullNumbers = new Set<string>(); // número/total ("63/198")
   for (const raw of tokens) {
-    const m = raw.match(/^([0-9OIlSBZ]{1,4}[a-z]?)(?:\/[0-9OIlSBZ]{1,4})?$/i);
+    const m = raw.match(/^([0-9OIlSBZ|]{1,4}[a-z]?)(?:\/([0-9OIlSBZ|]{1,4}))?$/i);
     if (!m) continue;
-    // Converte letras confundidas em dígitos só na parte numérica.
-    const digits = m[1].replace(/[Oo]/g, '0').replace(/[Il]/g, '1').replace(/S/g, '5').replace(/B/g, '8').replace(/Z/g, '2');
-    if (/^\d/.test(digits)) numbers.add(stripZeros(digits));
+    const n = digitize(m[1]);
+    if (!/^\d/.test(n)) continue;
+    numbers.add(stripZeros(n));
+    if (m[2]) fullNumbers.add(`${stripZeros(n)}/${stripZeros(digitize(m[2]))}`);
   }
-  const numberMatches = (p: Printing) => numbers.has(stripZeros(p.number));
+  const fullOf = (p: Printing) => {
+    const [a, b] = p.number.split('/');
+    return b ? `${stripZeros(a)}/${stripZeros(b)}` : null;
+  };
+  // Se a impressão tem total ("063/198"), exige número E total; senão, só o número.
+  const numberMatches = (p: Printing) => {
+    const full = fullOf(p);
+    return full ? fullNumbers.has(full) : numbers.has(stripZeros(p.number));
+  };
 
   let candidates: Printing[];
   let set: string | null = null;
@@ -83,7 +96,10 @@ export function parseFooter(text: string, printings: Printing[]): EditionResult 
     set = candidates.every((p) => p.set === candidates[0].set) ? candidates[0].set : null;
     if (!set) return null;
   } else {
-    return null; // sem edição reconhecida (ex.: carta antiga, sem código no rodapé)
+    // Sem código de edição: aceita só "número/total" que aponte para UMA edição.
+    candidates = printings.filter((p) => fullOf(p) !== null && numberMatches(p));
+    if (!candidates.length || !candidates.every((p) => p.set === candidates[0].set)) return null;
+    set = candidates[0].set;
   }
 
   const exact = candidates.length === 1 ? candidates : candidates.filter(numberMatches);

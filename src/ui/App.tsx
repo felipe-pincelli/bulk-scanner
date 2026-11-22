@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { listCameras, startCamera, stopCamera, type CameraDevice } from '../core/camera/cameraService';
 import { screenRectToVideoRect } from '../core/camera/geometry';
-import { defaultGame } from '../core/games/registry';
-import type { PriceInfo } from '../core/games/types';
+import { gameList, games } from '../core/games/registry';
+import type { GameProvider, PriceInfo } from '../core/games/types';
 import { FuzzyMatcher } from '../core/matching/fuzzyMatcher';
 import { loadCardIndex } from '../core/prices/cardDatabase';
 import { formatPrice, getUsdBrl, type Rate } from '../core/prices/currency';
@@ -16,7 +16,7 @@ import type { EditionResult } from '../core/edition/parseFooter';
 import { createWebFeedback } from '../core/platform/feedback';
 import { keepScreenOn } from '../core/platform/wakeLock';
 import { loadPref, savePref } from '../core/settings/settings';
-import { addEntry, loadSession, newSession, removeEntry, saveSession, type Session } from '../core/session/session';
+import { addEntry, loadSession, newSession, removeEntry, replaceLastEntry, saveSession, type Session } from '../core/session/session';
 import { SessionSummaryView } from './SessionSummary';
 import { UpdateBanner } from './UpdateBanner';
 
@@ -26,7 +26,6 @@ import { UpdateBanner } from './UpdateBanner';
  */
 
 const BASE = import.meta.env.BASE_URL;
-const game = defaultGame;
 const feedback = createWebFeedback();
 
 const levelLabel: Record<AlertLevel, string> = {
@@ -47,12 +46,6 @@ function loadAlertSettings(): AlertSettings {
   };
 }
 
-const finishLabel: Record<PriceInfo['maxFinish'], string> = {
-  nonfoil: 'normal',
-  foil: 'foil',
-  etched: 'foil etched',
-  '': '',
-};
 
 interface EditionView {
   cardName: string;
@@ -83,7 +76,7 @@ function EditionLine({ view, hasPrintings }: { view: EditionView | null; hasPrin
   return <div className="edition muted">{view.done ? 'Edição não identificada' : 'Lendo edição…'}</div>;
 }
 
-function PriceLine({ info, rate }: { info: PriceInfo | undefined; rate: Rate | null }) {
+function PriceLine({ info, rate, game }: { info: PriceInfo | undefined; rate: Rate | null; game: GameProvider }) {
   if (!info || info.maxUsd === null) return <div className="price none">sem preço no Scryfall</div>;
   const showNonfoil = info.maxNonfoilUsd !== null && info.maxNonfoilUsd !== info.maxUsd;
   return (
@@ -92,8 +85,8 @@ function PriceLine({ info, rate }: { info: PriceInfo | undefined; rate: Rate | n
         {info.minUsd === info.maxUsd ? formatPrice(info.maxUsd, rate) : `${formatPrice(info.minUsd, rate)} – ${formatPrice(info.maxUsd, rate)}`}
       </span>
       <span className="detail">
-        mais cara: {info.maxSetName} ({finishLabel[info.maxFinish]})
-        {showNonfoil && ` · sem foil até ${formatPrice(info.maxNonfoilUsd, rate)}`}
+        mais cara: {info.maxSetName} ({game.finishLabels[info.maxFinish]})
+        {showNonfoil && ` · ${game.finishLabels.nonfoil} até ${formatPrice(info.maxNonfoilUsd, rate)}`}
       </span>
     </div>
   );
@@ -137,7 +130,18 @@ export function App() {
   const [autoRotate, setAutoRotate] = useState(() => loadPref('autoRotate', '1') === '1');
   const [read, setRead] = useState<ScanRead | null>(null);
   const [readsPerSec, setReadsPerSec] = useState(0);
+  // Jogo escolhido (salvo no aparelho). Só um jogo por vez: dados, nomes e sessão dele.
+  const [gameId, setGameId] = useState(() => {
+    const saved = loadPref('game', 'magic');
+    return games[saved] ? saved : 'magic';
+  });
+  const game = games[gameId];
+  const gameRef = useRef(game);
+  gameRef.current = game;
+  const sessionGameRef = useRef<string | null>(null);
   const [session, setSession] = useState<Session>(newSession);
+  const sessionRef = useRef(session);
+  sessionRef.current = session;
   const [showSummary, setShowSummary] = useState(false);
   const sessionLoaded = useRef(false);
   const [alertSettings, setAlertSettings] = useState<AlertSettings>(alertRef.current);
@@ -148,15 +152,20 @@ export function App() {
   const [wakeInfo, setWakeInfo] = useState<string>('');
 
   useEffect(() => feedback.setSoundEnabled(soundOn), [soundOn]);
-  // Sessão salva no aparelho: recupera ao abrir e salva a cada mudança.
+  // Sessão salva no aparelho (uma por jogo): recupera ao abrir/trocar de jogo e
+  // salva a cada mudança.
   useEffect(() => {
-    void loadSession().then((s) => {
-      setSession((cur) => (cur.entries.length ? cur : s));
+    sessionLoaded.current = false;
+    sessionGameRef.current = null;
+    setSession(newSession());
+    void loadSession(gameId).then((s) => {
+      setSession(s);
+      sessionGameRef.current = gameId;
       sessionLoaded.current = true;
     });
-  }, []);
+  }, [gameId]);
   useEffect(() => {
-    if (sessionLoaded.current) void saveSession(session);
+    if (sessionLoaded.current && sessionGameRef.current) void saveSession(sessionGameRef.current, session);
   }, [session]);
   useEffect(() => {
     pricesRef.current = prices;
@@ -168,8 +177,10 @@ export function App() {
   // Índice de cartas/preços + cotação: carrega assim que a página abre.
   const loadData = useCallback(async (force: boolean) => {
     setUpdating(true);
+    const g = gameRef.current;
     try {
-      const { index, warning } = await loadCardIndex(game, BASE, force);
+      const { index, warning } = await loadCardIndex(g, BASE, force);
+      if (gameRef.current !== g) return; // trocou de jogo enquanto carregava
       const m = new FuzzyMatcher(index.entries);
       matcherRef.current = m;
       scannerRef.current?.setMatcher(m);
@@ -179,6 +190,10 @@ export function App() {
       setDataStatus(`${index.prices.size.toLocaleString('pt-BR')} cartas · preços de ${date}`);
       setRate(await getUsdBrl({ usdBrl: index.usdBrl, at: index.builtAt }, force));
     } catch (e) {
+      if (gameRef.current !== g) return;
+      matcherRef.current = null;
+      scannerRef.current?.setMatcher(null);
+      setPrices(new Map());
       setDataStatus('indisponível');
       setDataWarning((e as Error).message);
     } finally {
@@ -188,7 +203,24 @@ export function App() {
 
   useEffect(() => {
     void loadData(false);
-  }, [loadData]);
+  }, [loadData, gameId]);
+
+  function changeGame(id: string) {
+    if (running || id === gameId) return;
+    savePref('game', id);
+    const g = games[id];
+    gameRef.current = g;
+    setGameId(id);
+    setRead(null);
+    setEditionView(null);
+    setDataStatus('carregando…');
+    setDataWarning(null);
+    matcherRef.current = null;
+    scannerRef.current?.setGame(g);
+    scannerRef.current?.setMatcher(null);
+    void engineRef.current?.setNameWhitelist(g.nameCharWhitelist);
+    flowRef.current!.reset();
+  }
 
   const getZoneRect = useCallback(() => {
     const video = videoRef.current;
@@ -232,23 +264,33 @@ export function App() {
     }
 
     // Cartas "fechadas" nesta leitura: alerta (uma vez por carta) e entra na sessão.
-    for (const ev of flowRef.current!.onRead(r)) {
+    const severity = { none: 0, check: 1, yellow: 2, red: 3 } as const;
+    // Correção que chega junto com o alerta original (mesma leitura): vira um só.
+    const events = flowRef.current!.onRead(r);
+    const batch: typeof events = [];
+    for (const ev of events) {
+      const i = ev.replaces ? batch.findIndex((b) => b.cardName === ev.cardName && !b.replaces) : -1;
+      if (i >= 0) batch[i] = { ...ev, replaces: false };
+      else batch.push(ev);
+    }
+    for (const ev of batch) {
+      const usdBrl = rateRef.current?.usdBrl ?? null;
+      const data = { cardName: ev.cardName, ...ev.decision, price: ev.price, usdBrl, printing: ev.printing, set: ev.set };
+      if (ev.replaces) {
+        // Edição lida depois do alerta: corrige a sessão; se subiu de nível, avisa de novo.
+        const prev = [...sessionRef.current.entries].reverse().find((e) => e.cardName === ev.cardName);
+        if (prev && severity[ev.decision.level] > severity[prev.level]) {
+          feedback.alert(ev.decision.level);
+          setFlash({ level: ev.decision.level, id: performance.now() });
+        }
+        setSession((s) => replaceLastEntry(s, data));
+        continue;
+      }
       if (ev.decision.level !== 'none') {
         feedback.alert(ev.decision.level);
         setFlash({ level: ev.decision.level, id: performance.now() });
       }
-      const usdBrl = rateRef.current?.usdBrl ?? null;
-      setSession((s) =>
-        addEntry(s, {
-          cardName: ev.cardName,
-          at: Date.now(),
-          ...ev.decision,
-          price: ev.price,
-          usdBrl,
-          printing: ev.printing,
-          set: ev.set,
-        }),
-      );
+      setSession((s) => addEntry(s, { ...data, at: Date.now() }));
     }
   }, []);
 
@@ -295,7 +337,7 @@ export function App() {
       stopCamera(streamRef.current);
       const cameraPromise = startCamera(video, chosenId || undefined);
       if (!engineRef.current) {
-        const engine = new TesseractEngine(`${BASE}tesseract/`, game.nameCharWhitelist);
+        const engine = new TesseractEngine(`${BASE}tesseract/`, gameRef.current.nameCharWhitelist);
         setOcrStatus('carregando…');
         await engine.init((msg) => setOcrStatus(msg));
         engineRef.current = engine;
@@ -312,7 +354,7 @@ export function App() {
           video,
           engine: engineRef.current,
           matcher: matcherRef.current,
-          game,
+          game: gameRef.current,
           getZoneRect,
           onRead,
           autoRotate,
@@ -400,6 +442,19 @@ export function App() {
         <strong>Bulk Scanner</strong>
         <span className="tag">beta</span>
         <div className="spacer" />
+        <select
+          value={gameId}
+          onChange={(e) => changeGame(e.target.value)}
+          disabled={running || busy}
+          aria-label="Jogo"
+          title={running ? 'Pare a sessão para trocar de jogo' : 'Escolha o jogo'}
+        >
+          {gameList.map((g) => (
+            <option key={g.id} value={g.id}>
+              {g.shortName}
+            </option>
+          ))}
+        </select>
         {cameras.length > 1 && (
           <select value={deviceId} onChange={(e) => changeCamera(e.target.value)} aria-label="Câmera">
             {cameras.map((c) => (
@@ -441,8 +496,8 @@ export function App() {
         </div>
         {!running && !busy && (
           <div className="hint">
-            Toque em <b>Iniciar sessão</b> (libera o som) e coloque a carta dentro do quadrado — em pé ou
-            deitada.
+            Jogo: <b>{game.displayName}</b> (troque no topo). Toque em <b>Iniciar sessão</b> (libera o som) e
+            coloque a carta dentro do quadrado — em pé ou deitada.
           </div>
         )}
       </div>
@@ -450,6 +505,7 @@ export function App() {
       <UpdateBanner />
       {showSummary && (
         <SessionSummaryView
+          game={game}
           session={session}
           onRemove={(id) => setSession((s) => removeEntry(s, id))}
           onContinue={() => {
@@ -473,7 +529,7 @@ export function App() {
           )}
         </div>
         {read?.match && <EditionLine view={ed} hasPrintings={!!prices.get(read.match.cardName)?.printings} />}
-        {read?.match && <PriceLine info={shownPrice} rate={rate} />}
+        {read?.match && <PriceLine info={shownPrice} rate={rate} game={game} />}
 
         <label className="min-row">
           Alertar a partir de
@@ -540,7 +596,7 @@ export function App() {
                 checked={alertSettings.includeFoil}
                 onChange={(e) => updateAlertSettings({ includeFoil: e.target.checked })}
               />
-              Considerar versões foil no preço máximo
+              Considerar versões {game.id === 'magic' ? 'foil' : `${game.finishLabels.foil} e ${game.finishLabels.etched}`} no preço máximo
             </label>
             {alertSettings.basis === 'safe' && (
               <label className="check">

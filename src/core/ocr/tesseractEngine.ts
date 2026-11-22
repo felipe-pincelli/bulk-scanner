@@ -111,6 +111,12 @@ export class TesseractEngine implements OcrEngine {
     return lines;
   }
 
+  /** Troca os caracteres aceitos no nome (cada jogo tem os seus). */
+  async setNameWhitelist(whitelist: string) {
+    this.whitelist = whitelist;
+    await Promise.all(this.workers.map((w) => w.setParameters({ tessedit_char_whitelist: whitelist })));
+  }
+
   async readFooter(image: HTMLCanvasElement): Promise<string> {
     if (!this.footerWorker) return '';
     const { data } = await this.footerWorker.recognize(image);
