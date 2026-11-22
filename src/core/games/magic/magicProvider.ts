@@ -25,7 +25,10 @@ export const magicProvider: GameProvider = {
   finishLabels: { nonfoil: 'normal', foil: 'foil', etched: 'foil etched', '': '' },
   exportWithSet: {
     label: 'Lista com edição — Moxfield, Archidekt, ManaBox',
-    line: (count, name, set, number) => `${count} ${name} (${set.toUpperCase()})${number ? ` ${number}` : ''}`,
+    // Formato do Moxfield: "1 Lightning Bolt (2X2) 117 *F*" (*F* = foil, *E* = etched).
+    line: (count, name, set, number, finish) =>
+      `${count} ${name} (${set.toUpperCase()})${number ? ` ${number}` : ''}` +
+      (finish === 'foil' ? ' *F*' : finish === 'etched' ? ' *E*' : ''),
   },
   exportPlainLabel: 'Lista simples (só nome) — qualquer site (MTGGoldfish, TappedOut…)',
   importHint: 'No site, procure "Import" / "Importar" e cole a lista. Ex.: Moxfield → Collection ou um deck novo → Import.',

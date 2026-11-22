@@ -1,6 +1,7 @@
 import type { AlertLevel } from '../alerts/alertRules';
 import type { PriceInfo, Printing } from '../games/types';
 import { kvGet, kvSet } from '../storage/kvStore';
+import { effectiveLevel, entryRangeUsd, type Finish } from './finish';
 
 /**
  * Sessão de escaneamento: todas as cartas reconhecidas, com o preço do momento.
@@ -21,6 +22,8 @@ export interface SessionEntry {
   printing?: Printing | null;
   /** Código da edição identificada (mesmo sem a versão exata). */
   set?: string | null;
+  /** Acabamento escolhido pelo usuário no resumo (sem escolha = não informado). */
+  finish?: Finish;
 }
 
 export interface Session {
@@ -68,6 +71,10 @@ export function replaceLastEntry(session: Session, entry: Omit<SessionEntry, 'id
   return session;
 }
 
+export function setEntryFinish(session: Session, id: string, finish: Finish): Session {
+  return { ...session, entries: session.entries.map((e) => (e.id === id ? { ...e, finish } : e)) };
+}
+
 export function removeEntry(session: Session, id: string): Session {
   return { ...session, entries: session.entries.filter((e) => e.id !== id) };
 }
@@ -78,6 +85,8 @@ export interface SessionSummary {
   alerts: SessionEntry[];
   /** Cartas com aviso "confira a edição". */
   checks: SessionEntry[];
+  /** Demais cartas lidas (sem alerta) — dá para marcar foil nelas também. */
+  others: SessionEntry[];
   /** Soma da versão MAIS BARATA de cada carta com alerta (valor garantido). */
   totalMinBrl: number;
   /** Soma da versão MAIS CARA (se todas fossem as edições mais caras). */
@@ -86,21 +95,23 @@ export interface SessionSummary {
 }
 
 const brlOf = (usd: number | null | undefined, rate: number | null) => (usd != null && rate ? usd * rate : 0);
+const valueOf = (e: SessionEntry) => brlOf(entryRangeUsd(e).max, e.usdBrl);
 
-export function summarize(session: Session): SessionSummary {
-  const alerts = session.entries
-    .filter((e) => e.level === 'yellow' || e.level === 'red')
-    .sort((a, b) => (b.valueBrl ?? 0) - (a.valueBrl ?? 0));
-  const checks = session.entries
-    .filter((e) => e.level === 'check')
-    .sort((a, b) => (b.valueBrl ?? 0) - (a.valueBrl ?? 0));
+/** Resumo da sessão. `minBrl` recalcula o alerta das cartas em que o usuário marcou o acabamento. */
+export function summarize(session: Session, minBrl = 0): SessionSummary {
+  const level = (e: SessionEntry) => effectiveLevel(e, minBrl);
+  const byValue = (a: SessionEntry, b: SessionEntry) => valueOf(b) - valueOf(a);
+  const alerts = session.entries.filter((e) => level(e) === 'yellow' || level(e) === 'red').sort(byValue);
+  const checks = session.entries.filter((e) => level(e) === 'check').sort(byValue);
+  const others = session.entries.filter((e) => level(e) === 'none').sort(byValue);
   const last = session.entries.at(-1)?.at ?? session.startedAt;
   return {
     scanned: session.entries.length,
     alerts,
     checks,
-    totalMinBrl: alerts.reduce((sum, e) => sum + brlOf(e.price?.minUsd, e.usdBrl), 0),
-    totalMaxBrl: alerts.reduce((sum, e) => sum + brlOf(e.price?.maxUsd, e.usdBrl), 0),
+    others,
+    totalMinBrl: alerts.reduce((sum, e) => sum + brlOf(entryRangeUsd(e).min, e.usdBrl), 0),
+    totalMaxBrl: alerts.reduce((sum, e) => sum + brlOf(entryRangeUsd(e).max, e.usdBrl), 0),
     durationMin: Math.max(0, Math.round((last - session.startedAt) / 60000)),
   };
 }
@@ -113,12 +124,13 @@ export function formatBrl(usd: number | null | undefined, rate: number | null): 
 
 /** Texto simples da sessão, para copiar e colar (WhatsApp, notas…). */
 export function sessionToText(s: SessionSummary, startedAt: number): string {
-  const range = (e: SessionEntry) =>
-    e.price?.minUsd === e.price?.maxUsd
-      ? formatBrl(e.price?.maxUsd, e.usdBrl)
-      : `${formatBrl(e.price?.minUsd, e.usdBrl)} a ${formatBrl(e.price?.maxUsd, e.usdBrl)}`;
+  const range = (e: SessionEntry) => {
+    const r = entryRangeUsd(e);
+    return r.min === r.max ? formatBrl(r.max, e.usdBrl) : `${formatBrl(r.min, e.usdBrl)} a ${formatBrl(r.max, e.usdBrl)}`;
+  };
   const line = (e: SessionEntry) =>
     `• ${e.cardName}: ${range(e)}` +
+    (e.finish && e.finish !== 'nonfoil' ? (e.finish === 'foil' ? ' [foil]' : ' [especial]') : '') +
     (e.printing
       ? ` (${e.printing.setName} #${e.printing.number})`
       : e.set

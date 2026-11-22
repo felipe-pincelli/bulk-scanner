@@ -7,7 +7,7 @@ import { FuzzyMatcher } from '../core/matching/fuzzyMatcher';
 import { loadCardIndex } from '../core/prices/cardDatabase';
 import { formatPrice, getUsdBrl, type Rate } from '../core/prices/currency';
 import { TesseractEngine } from '../core/ocr/tesseractEngine';
-import { orientationLabel, rotateRegion } from '../core/scanner/orientation';
+import { orientationLabel } from '../core/scanner/orientation';
 import { Scanner, type ScanRead } from '../core/scanner/scanner';
 import { evaluateAlert, type AlertBasis, type AlertLevel, type AlertSettings } from '../core/alerts/alertRules';
 import { AlertFlow } from '../core/alerts/alertFlow';
@@ -16,7 +16,16 @@ import type { EditionResult } from '../core/edition/parseFooter';
 import { createWebFeedback } from '../core/platform/feedback';
 import { keepScreenOn } from '../core/platform/wakeLock';
 import { loadPref, savePref } from '../core/settings/settings';
-import { addEntry, loadSession, newSession, removeEntry, replaceLastEntry, saveSession, type Session } from '../core/session/session';
+import {
+  addEntry,
+  loadSession,
+  newSession,
+  removeEntry,
+  replaceLastEntry,
+  saveSession,
+  setEntryFinish,
+  type Session,
+} from '../core/session/session';
 import { SessionSummaryView } from './SessionSummary';
 import { UpdateBanner } from './UpdateBanner';
 
@@ -418,7 +427,6 @@ export function App() {
 
   useEffect(() => () => stop(), []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const band = rotateRegion(game.nameSearchBand, read?.orientation ?? 0);
   const status = read?.match
     ? read.confirmed
       ? 'confirmed'
@@ -478,17 +486,8 @@ export function App() {
 
       <div className="stage">
         <video ref={videoRef} playsInline muted autoPlay />
-        <div ref={zoneRef} className="zone" style={{ '--g': zoneSize } as React.CSSProperties}>
+        <div ref={zoneRef} className={`zone ${status}`} style={{ '--g': zoneSize } as React.CSSProperties}>
           <div className="card-ghost" style={{ '--aspect': game.cardAspect } as React.CSSProperties} />
-          <div
-            className={`name-band ${status}`}
-            style={{
-              left: `${band.x * 100}%`,
-              top: `${band.y * 100}%`,
-              width: `${band.w * 100}%`,
-              height: `${band.h * 100}%`,
-            }}
-          />
           <i className="corner tl" />
           <i className="corner tr" />
           <i className="corner bl" />
@@ -507,7 +506,9 @@ export function App() {
         <SessionSummaryView
           game={game}
           session={session}
+          minBrl={alertSettings.minBrl}
           onRemove={(id) => setSession((s) => removeEntry(s, id))}
+          onFinish={(id, f) => setSession((s) => setEntryFinish(s, id, f))}
           onContinue={() => {
             setShowSummary(false);
             void start();
@@ -528,7 +529,7 @@ export function App() {
             </span>
           )}
         </div>
-        {read?.match && <EditionLine view={ed} hasPrintings={!!prices.get(read.match.cardName)?.printings} />}
+        {read?.match && <EditionLine view={ed} hasPrintings={(prices.get(read.match.cardName)?.printings?.length ?? 0) > 1} />}
         {read?.match && <PriceLine info={shownPrice} rate={rate} game={game} />}
 
         <label className="min-row">
@@ -590,7 +591,7 @@ export function App() {
                 ? 'Alerta só quando QUALQUER cópia da carta vale o mínimo. Se só uma edição específica vale, mostra o aviso azul "confira a edição".'
                 : 'Alerta quando ALGUMA impressão vale o mínimo — dispara bem mais, inclusive para cartas baratas que têm um promo caro.'}
             </p>
-            <label className="check">
+            <label className="checkbox-row">
               <input
                 type="checkbox"
                 checked={alertSettings.includeFoil}
@@ -599,7 +600,7 @@ export function App() {
               Considerar versões {game.id === 'magic' ? 'foil' : `${game.finishLabels.foil} e ${game.finishLabels.etched}`} no preço máximo
             </label>
             {alertSettings.basis === 'safe' && (
-              <label className="check">
+              <label className="checkbox-row">
                 <input
                   type="checkbox"
                   checked={alertSettings.checkCue}
@@ -608,7 +609,7 @@ export function App() {
                 Aviso azul "confira a edição"
               </label>
             )}
-            <label className="check">
+            <label className="checkbox-row">
               <input type="checkbox" checked={soundOn} onChange={(e) => changeSound(e.target.checked)} />
               Som
             </label>
@@ -649,7 +650,7 @@ export function App() {
               onChange={(e) => changeZone(Number(e.target.value))}
             />
           </label>
-          <label className="check">
+          <label className="checkbox-row">
             <input type="checkbox" checked={autoRotate} onChange={(e) => changeAutoRotate(e.target.checked)} />
             Detectar carta deitada / de cabeça para baixo
           </label>

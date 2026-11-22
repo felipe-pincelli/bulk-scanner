@@ -16,7 +16,7 @@ export type IndexRow = [
   maxSet: string,
   maxSetName: string,
   maxFinish: Finish,
-  printings?: PrintingRow[], // só para cartas com 2+ impressões com preço
+  printings?: PrintingRow[], // cartas com 2+ impressões, ou 1 com preço foil/especial
 ];
 
 export class IndexBuilder {
@@ -72,7 +72,9 @@ export class IndexBuilder {
     for (const row of this.rows.values()) if (row[1] === null && row[3] !== null) row[1] = row[3];
     let printingCount = 0;
     for (const [name, list] of this.printings) {
-      if (list.length < 2) continue;
+      // Guarda as impressões quando há mais de uma, ou quando a única tem preço
+      // foil/especial (para o usuário poder marcar "foil" no resumo).
+      if (list.length < 2 && list[0][3] === null && list[0][4] === null) continue;
       this.rows.get(name)![7] = list;
       printingCount += list.length;
     }

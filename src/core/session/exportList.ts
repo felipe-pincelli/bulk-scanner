@@ -1,6 +1,7 @@
 import type { AlertLevel } from '../alerts/alertRules';
 import type { GameProvider } from '../games/types';
 import type { SessionEntry } from './session';
+import { effectiveLevel, entryRangeUsd } from './finish';
 
 /**
  * Exporta as cartas da sessão para outros sites/apps.
@@ -34,17 +35,18 @@ interface Grouped {
 }
 
 function setSuffix(e: SessionEntry): string {
-  if (e.printing) return `${e.printing.set}|${e.printing.number}`;
-  if (e.set) return `${e.set}|`;
-  return '';
+  const f = e.finish && e.finish !== 'nonfoil' ? `|${e.finish}` : '';
+  if (e.printing) return `${e.printing.set}|${e.printing.number}${f}`;
+  if (e.set) return `${e.set}|${f}`;
+  return f;
 }
 
 /** Junta cópias repetidas da mesma carta ("Moat" lido 2x -> 2 Moat). */
-function group(entries: SessionEntry[], scope: ExportScope, bySet = false): Grouped[] {
+function group(entries: SessionEntry[], scope: ExportScope, bySet = false, minBrl = 0): Grouped[] {
   const levels = SCOPE_LEVELS[scope];
   const map = new Map<string, Grouped>();
   for (const e of entries) {
-    if (!levels.includes(e.level)) continue;
+    if (!levels.includes(effectiveLevel(e, minBrl))) continue;
     const suffix = bySet ? setSuffix(e) : '';
     const key = e.cardName + suffix;
     const g = map.get(key);
@@ -52,19 +54,27 @@ function group(entries: SessionEntry[], scope: ExportScope, bySet = false): Grou
     else map.set(key, { name: e.cardName, count: 1, entry: e, setSuffix: suffix });
   }
   // Mais valiosas primeiro.
-  return [...map.values()].sort((a, b) => (b.entry.price?.maxUsd ?? 0) - (a.entry.price?.maxUsd ?? 0));
+  return [...map.values()].sort((a, b) => (entryRangeUsd(b.entry).max ?? 0) - (entryRangeUsd(a.entry).max ?? 0));
 }
 
-export function countExport(entries: SessionEntry[], scope: ExportScope): number {
-  return group(entries, scope).reduce((n, g) => n + g.count, 0);
+export function countExport(entries: SessionEntry[], scope: ExportScope, minBrl = 0): number {
+  return group(entries, scope, false, minBrl).reduce((n, g) => n + g.count, 0);
 }
 
-export function toDecklistText(entries: SessionEntry[], scope: ExportScope, game: GameProvider, withSet = false): string {
-  return group(entries, scope, withSet)
+export function toDecklistText(
+  entries: SessionEntry[],
+  scope: ExportScope,
+  game: GameProvider,
+  withSet = false,
+  minBrl = 0,
+): string {
+  return group(entries, scope, withSet, minBrl)
     .map((g) => {
       const e = g.entry;
       const set = e.printing?.set ?? e.set;
-      return withSet && set ? game.exportWithSet.line(g.count, g.name, set, e.printing?.number ?? null) : `${g.count} ${g.name}`;
+      return withSet && set
+        ? game.exportWithSet.line(g.count, g.name, set, e.printing?.number ?? null, e.finish)
+        : `${g.count} ${g.name}`;
     })
     .join('\n');
 }
@@ -77,30 +87,41 @@ const decimal = (n: number) => n.toFixed(2).replace('.', ',');
 const money = (usd: number | null | undefined, rate: number | null) =>
   usd != null && rate ? decimal(usd * rate) : '';
 
-export function toCsv(entries: SessionEntry[], scope: ExportScope): string {
-  const header = ['Quantidade', 'Nome', 'Edição', 'Número', 'Alerta', 'Mín. R$', 'Máx. R$', 'Mín. US$', 'Máx. US$', 'Edição mais cara'];
+export function toCsv(entries: SessionEntry[], scope: ExportScope, minBrl = 0): string {
+  const header = ['Quantidade', 'Nome', 'Edição', 'Número', 'Acabamento', 'Alerta', 'Mín. R$', 'Máx. R$', 'Mín. US$', 'Máx. US$', 'Edição mais cara'];
+  const finishName = { nonfoil: 'normal', foil: 'foil', etched: 'especial' } as const;
   const levelName: Record<AlertLevel, string> = { red: 'vermelho', yellow: 'amarelo', check: 'confira a edição', none: '' };
-  const rows = group(entries, scope, true).map(({ name, count, entry: e }) => [
+  const rows = group(entries, scope, true, minBrl).map(({ name, count, entry: e }) => {
+    const r = entryRangeUsd(e);
+    return [
     count,
     name,
     e.printing?.setName ?? (e.set ? (e.price?.maxSetName ?? e.set.toUpperCase()) : ''),
     e.printing?.number ?? '',
-    levelName[e.level],
-    money(e.price?.minUsd, e.usdBrl),
-    money(e.price?.maxUsd, e.usdBrl),
-    e.price?.minUsd != null ? decimal(e.price.minUsd) : '',
-    e.price?.maxUsd != null ? decimal(e.price.maxUsd) : '',
+    e.finish ? finishName[e.finish] : '',
+    levelName[effectiveLevel(e, minBrl)],
+    money(r.min, e.usdBrl),
+    money(r.max, e.usdBrl),
+    r.min != null ? decimal(r.min) : '',
+    r.max != null ? decimal(r.max) : '',
     e.price?.maxSetName ?? '',
-  ]);
+  ];
+  });
   return [header, ...rows].map((r) => r.map(csvCell).join(';')).join('\n');
 }
 
-export function exportContent(entries: SessionEntry[], scope: ExportScope, format: ExportFormat, game: GameProvider) {
+export function exportContent(
+  entries: SessionEntry[],
+  scope: ExportScope,
+  format: ExportFormat,
+  game: GameProvider,
+  minBrl = 0,
+) {
   const date = new Date().toISOString().slice(0, 10);
   return format === 'csv'
-    ? { text: toCsv(entries, scope), filename: `bulk-scanner-${game.id}-${date}.csv`, mime: 'text/csv', bom: true }
+    ? { text: toCsv(entries, scope, minBrl), filename: `bulk-scanner-${game.id}-${date}.csv`, mime: 'text/csv', bom: true }
     : {
-        text: toDecklistText(entries, scope, game, format === 'textWithSet'),
+        text: toDecklistText(entries, scope, game, format === 'textWithSet', minBrl),
         filename: `bulk-scanner-${game.id}-${date}.txt`,
         mime: 'text/plain',
         bom: false,

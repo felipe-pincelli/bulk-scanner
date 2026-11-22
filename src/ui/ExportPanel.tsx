@@ -18,7 +18,7 @@ async function copyText(text: string) {
   }
 }
 
-export function ExportPanel({ entries, game }: { entries: SessionEntry[]; game: GameProvider }) {
+export function ExportPanel({ entries, game, minBrl }: { entries: SessionEntry[]; game: GameProvider; minBrl: number }) {
   const [scope, setScope] = useState<ExportScope>(() => loadPref('exportScope', 'alerts') as ExportScope);
   const [format, setFormat] = useState<ExportFormat>(() => {
     const f = loadPref('exportFormat', 'textWithSet');
@@ -26,8 +26,8 @@ export function ExportPanel({ entries, game }: { entries: SessionEntry[]; game: 
   });
   const [done, setDone] = useState('');
 
-  const count = countExport(entries, scope);
-  const content = exportContent(entries, scope, format, game);
+  const count = countExport(entries, scope, minBrl);
+  const content = exportContent(entries, scope, format, game, minBrl);
   const file = () => new File([content.bom ? '\uFEFF' : '', content.text], content.filename, { type: content.mime });
   const canShareFile = typeof navigator.canShare === 'function' && navigator.canShare({ files: [file()] });
 

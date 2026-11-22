@@ -60,7 +60,8 @@ disponível → Atualizar"**. Nada muda sozinho no meio de uma sessão.
 2. Coloque a carta **dentro do quadrado** (cantos brancos), em pé, deitada ou de
    cabeça para baixo. Não precisa alinhar com precisão: o app procura o nome numa
    faixa larga perto da borda da carta.
-3. Passe as cartas uma após a outra. O nome reconhecido aparece no painel:
+3. Passe as cartas uma após a outra. Os cantos do quadrado ficam amarelos (lido
+   uma vez) e verdes (confirmado). O nome reconhecido aparece no painel:
    amarelo = lido uma vez, verde = confirmado (lido igual 2 vezes seguidas). A
    faixa de preço em R$ aparece logo abaixo.
 4. Toque em **Parar** para ver o resumo da sessão.
@@ -122,6 +123,13 @@ Ao tocar em **Parar**:
   **total estimado**. O total é a soma da versão mais
   barata de cada carta com alerta, ou seja, o mínimo garantido. Logo abaixo aparece
   quanto daria se todas fossem as edições mais caras.
+- **Acabamento:** o app não detecta foil pela câmera (o brilho depende demais da
+  luz e do ângulo). Em cada carta do resumo há botões **normal / foil / foil
+  etched** (no Pokémon: **normal / reverse holo / 1ª edição**). Ao marcar, o
+  preço passa a ser o daquele acabamento, e o alerta, o total e a exportação se
+  ajustam. Uma carta sem alerta marcada como foil pode passar a valer (seção
+  "Outras cartas lidas"). Na exportação do Moxfield sai `*F*` (foil) ou `*E*`
+  (etched).
 - **remover** tira um alerta falso da lista.
 - **Copiar resumo**: texto pronto para WhatsApp ou notas.
 - **Exportar**:

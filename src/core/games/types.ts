@@ -97,7 +97,10 @@ export interface GameProvider {
   /** Como chamar as variantes de preço neste jogo (ex.: foil / reverse holo). */
   finishLabels: Record<PriceInfo['maxFinish'], string>;
   /** Exportação "com edição": formato de uma linha e nome do formato. */
-  exportWithSet: { label: string; line: (count: number, name: string, set: string, number: string | null) => string };
+  exportWithSet: {
+    label: string;
+    line: (count: number, name: string, set: string, number: string | null, finish?: 'nonfoil' | 'foil' | 'etched') => string;
+  };
   /** Exportação simples (só nome): nome do formato. */
   exportPlainLabel: string;
   /** Dica de onde importar a lista. */
