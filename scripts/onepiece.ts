@@ -18,26 +18,48 @@ type Variant = 'base' | 'parallel' | 'special';
 /** Parênteses que são marcação do TCGplayer (versão/numeração), e não parte do nome. */
 const NUMBERING = /^\s*(\d+|[A-Z]{1,4}\d{0,3}-\d{2,3}[a-z]?)\s*$/i; // "(060)", "(OP17-119)"
 const PARALLEL = /parallel|alternate art|alt[ .-]?art/i;
-const SPECIAL =
-  /manga|\bsp\b|\btr\b|gold|special|super|full art|foil|promo|textured|serial|signature|pre-?release|winner|judge|treasure|wanted|reprint|box topper|jolly roger|stamp|anniversary|championship|celebration/i;
-const isMark = (m: string) => NUMBERING.test(m) || PARALLEL.test(m) || SPECIAL.test(m);
 
-/** Classifica o produto pela marcação que o TCGplayer põe no nome. */
+/**
+ * Parêntese que faz parte do NOME impresso (e não é marcação de versão):
+ * colado na palavra ("Kurei(Bentham)"), com ponto ("(Daz.Bonez)") ou com
+ * reticências/exclamações ("(...That Terrifies the Children Most!!!)").
+ * O resto ("(Manga)", "(Heroine Leader)", "(Kentaro Yabuki)") é versão.
+ */
+function isPartOfName(full: string, index: number, inner: string): boolean {
+  if (NUMBERING.test(inner) || PARALLEL.test(inner)) return false;
+  const attached = index > 0 && full[index - 1] !== ' ';
+  return attached || inner.includes('.') || /!!|\.\.\./.test(inner);
+}
+
+/** Marcações de versão do nome do produto (sem as que fazem parte do nome). */
+function marksOf(name: string): string[] {
+  const out: string[] = [];
+  for (const m of name.matchAll(/\(([^)]*)\)|\[([^\]]*)\]/g)) {
+    const inner = m[1] ?? m[2];
+    if (m[1] !== undefined && isPartOfName(name, m.index!, inner)) continue;
+    if (!NUMBERING.test(inner)) out.push(inner);
+  }
+  return out;
+}
+
+/** Classifica o produto: comum, parallel/alt art, ou outra versão especial. */
 export function variantOf(name: string): Variant {
-  const marks = [...name.matchAll(/\(([^)]*)\)|\[([^\]]*)\]/g)].map((m) => m[1] ?? m[2]);
+  const marks = marksOf(name);
   if (marks.some((m) => PARALLEL.test(m))) return 'parallel';
-  if (marks.some((m) => SPECIAL.test(m))) return 'special';
-  return 'base';
+  return marks.length ? 'special' : 'base';
 }
 
 /**
- * Nome impresso na carta. Tira só as marcações de versão do TCGplayer; parênteses
+ * Nome impresso na carta. Tira as marcações de versão do TCGplayer; parênteses
  * que fazem parte do nome ficam: "Mr.1 (Daz.Bonez)", "Mr.2.Bon.Kurei(Bentham)".
  */
 export function cleanOnePieceName(name: string): string {
   return name
     .replace(/\s*\[[^\]]*\]/g, '')
-    .replace(/\s*\(([^)]*)\)/g, (all, inner: string) => (isMark(inner) ? '' : all))
+    .replace(/\s*\(([^)]*)\)/g, (all: string, inner: string, offset: number) => {
+      const parenAt = offset + all.indexOf('(');
+      return isPartOfName(name, parenAt, inner) ? all : '';
+    })
     .replace(/\s+-\s+[A-Z]{1,4}\d{0,3}-\d{2,3}[a-z]?\s*$/, '') // " - OP01-016"
     .replace(/\s+/g, ' ')
     .trim();
