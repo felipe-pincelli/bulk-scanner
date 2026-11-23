@@ -107,7 +107,15 @@ export interface GameProvider {
    * Idiomas que o usuário pode escolher para o lote. `footerOnly`: a carta é
    * identificada só pelo rodapé (edição + número), sem ler o nome.
    */
-  lotLanguages?: { id: string; label: string; footerOnly: boolean }[];
+  lotLanguages?: {
+    id: string;
+    label: string;
+    footerOnly: boolean;
+    /** Idioma do OCR para ler o nome (ex.: "jpn"). */
+    ocrLang?: 'jpn';
+    /** Se o nome não for reconhecido, tenta identificar pelo rodapé. */
+    footerFallback?: boolean;
+  }[];
   /** Caracteres que podem aparecer num nome (ajuda o OCR a não "inventar" símbolos). */
   nameCharWhitelist: string;
   /** Arquivo do índice, relativo à pasta do site (gerado por scripts/build-data.ts). */

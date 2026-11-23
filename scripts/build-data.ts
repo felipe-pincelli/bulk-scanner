@@ -155,9 +155,9 @@ async function buildMagic(builder: IndexBuilder): Promise<string> {
   const { chunks, updatedAt } = await openCards();
   const started = Date.now();
   let total = 0;
-  // Nome em português → quantas impressões usam esse nome para cada carta em
-  // inglês. (Às vezes cartas diferentes receberam o mesmo nome em português.)
-  const ptNames = new Map<string, Map<string, number>>();
+  // Nome em português/japonês → quantas impressões usam esse nome para cada carta
+  // em inglês. (Às vezes cartas diferentes receberam o mesmo nome traduzido.)
+  const foreignNames: Record<string, Map<string, Map<string, number>>> = { pt: new Map(), ja: new Map() };
   // Impressões só em outro idioma (ex.: artes alternativas japonesas): entram se
   // não houver a mesma edição+número em inglês.
   const foreign = new Map<string, ScryfallCard>(); // "set|número" → impressão com preço
@@ -172,13 +172,14 @@ async function buildMagic(builder: IndexBuilder): Promise<string> {
     if (card.promo_types?.includes('serialized')) continue;
 
     if (card.lang && card.lang !== 'en') {
-      if (card.lang === 'pt') {
-        // Nome impresso em português (cartas de duas faces: o de cada face).
+      const names = card.lang ? foreignNames[card.lang] : undefined;
+      if (names) {
+        // Nome impresso em português/japonês (cartas de duas faces: o de cada face).
         const printed = [card.printed_name, ...(card.card_faces ?? []).map((f) => f.printed_name)];
         for (const n of printed) {
           if (!n || n === card.name || n.includes(' // ')) continue;
-          if (!ptNames.has(n)) ptNames.set(n, new Map());
-          const counts = ptNames.get(n)!;
+          if (!names.has(n)) names.set(n, new Map());
+          const counts = names.get(n)!;
           counts.set(card.name, (counts.get(card.name) ?? 0) + 1);
         }
       }
@@ -213,26 +214,25 @@ async function buildMagic(builder: IndexBuilder): Promise<string> {
   // Apelidos em português (sem sobrescrever nomes oficiais em inglês). Se o mesmo
   // nome em português foi usado para cartas diferentes, fica a carta que usa esse
   // nome em mais impressões.
-  let ptCount = 0;
-  let conflicts = 0;
-  const conflictSamples: string[] = [];
-  for (const [pt, counts] of ptNames) {
-    if (builder.rows.has(pt)) continue;
-    const ranked = [...counts.entries()].filter(([en]) => builder.rows.has(en)).sort((a, b) => b[1] - a[1]);
-    if (!ranked.length) continue;
-    if (ranked.length > 1) {
-      conflicts++;
-      if (conflictSamples.length < 5) conflictSamples.push(`${pt}: ${ranked.map(([en, n]) => `${en} (${n})`).join(', ')}`);
+  const counts: Record<string, string> = {};
+  for (const [lang, names] of Object.entries(foreignNames)) {
+    let count = 0;
+    let conflicts = 0;
+    for (const [foreign, byCard] of names) {
+      if (builder.rows.has(foreign)) continue;
+      const ranked = [...byCard.entries()].filter(([en]) => builder.rows.has(en)).sort((a, b) => b[1] - a[1]);
+      if (!ranked.length) continue;
+      if (ranked.length > 1) conflicts++;
+      builder.aliases[foreign] = ranked[0][0];
+      count++;
     }
-    builder.aliases[pt] = ranked[0][0];
-    ptCount++;
+    counts[lang] = `${count} (${conflicts} com mais de uma carta)`;
   }
   console.log(
     `[magic] impressões lidas: ${total} em ${Math.round((Date.now() - started) / 1000)} s · só em outro idioma: ${foreignAdded}` +
-      ` · nomes em português: ${ptCount} (${conflicts} com mais de uma carta)`,
+      ` · nomes em português: ${counts.pt} · em japonês: ${counts.ja}`,
   );
-  for (const c of conflictSamples) console.log(`  conflito → ${c}`);
-  for (const pt of ['Relâmpago', 'Anel Solar', 'Fosso', 'Elfos de Llanowar', 'Contramágica']) {
+  for (const pt of ['Anel Solar', 'Elfos de Llanowar', 'Contramágica', '稲妻', '対抗呪文', '太陽の指輪']) {
     if (builder.aliases[pt]) console.log(`  ${pt} → ${builder.aliases[pt]}`);
   }
   // Amostra para conferência rápida no log do GitHub Actions.

@@ -12,11 +12,12 @@ export const magicProvider: GameProvider = {
   // pouco deslocada, menor ou maior que a moldura.
   nameSearchBand: { x: 0, y: 0, w: 1, h: 0.28 },
   nameCharWhitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz ',-",
-  // Cartas em escrita não latina: identificadas pelo rodapé ("NEO • JA" + número),
-  // que é latino em cartas de 2015 em diante.
+  // Cartas em escrita não latina: identificadas pelo rodapé ("ONE • PH" + número),
+  // que é latino em cartas de 2015 em diante. Japonês também pelo nome.
   lotLanguages: [
     { id: 'latin', label: 'inglês/português', footerOnly: false },
-    { id: 'ja', label: 'japonês', footerOnly: true },
+    // Japonês: lê o nome em japonês (cartas antigas) e, se não reconhecer, o rodapé.
+    { id: 'ja', label: 'japonês', footerOnly: false, ocrLang: 'jpn', footerFallback: true },
     { id: 'ph', label: 'phyrexiano', footerOnly: true },
     { id: 'ko', label: 'coreano', footerOnly: true },
     { id: 'zh', label: 'chinês', footerOnly: true },

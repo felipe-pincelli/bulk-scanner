@@ -18,6 +18,8 @@ const files: [string, string][] = [
   ['node_modules/tesseract.js-core/tesseract-core-relaxedsimd-lstm.wasm.js', 'tesseract-core-relaxedsimd-lstm.wasm.js'],
   // Modelo de inglês "best_int": bom equilíbrio entre precisão e velocidade (~3 MB).
   ['node_modules/@tesseract.js-data/eng/4.0.0_best_int/eng.traineddata.gz', 'eng.traineddata.gz'],
+  // Japonês (~2 MB): só é baixado pelo app quando o lote é de cartas japonesas.
+  ['node_modules/@tesseract.js-data/jpn/4.0.0_best_int/jpn.traineddata.gz', 'jpn.traineddata.gz'],
 ];
 
 for (const [from, to] of files) copyFileSync(from, join(out, to));

@@ -121,7 +121,7 @@ export function App() {
   const footerPreviewRef = useRef<HTMLCanvasElement>(null);
   const copyRef = useRef<CopyInfo>({});
   const footerIndexRef = useRef<FooterIndex | null>(null);
-  const lotLangRef = useRef<{ id: string; label: string; footerOnly: boolean } | null>(null);
+  const lotLangRef = useRef<NonNullable<GameProvider['lotLanguages']>[number] | null>(null);
   /** Último texto reconhecido de cada carta (ex.: "Relâmpago" → Lightning Bolt). */
   const readNameRef = useRef(new Map<string, string>());
   const flowRef = useRef<AlertFlow | null>(null);
@@ -185,8 +185,8 @@ export function App() {
   // Catálogo edição+número → carta: só é montado quando o lote usa um idioma
   // reconhecido pelo rodapé (japonês, phyrexiano…).
   const footerIndex = useMemo(
-    () => (lotLang?.footerOnly && prices.size ? buildFooterIndex(prices) : null),
-    [prices, lotLang?.footerOnly],
+    () => ((lotLang?.footerOnly || lotLang?.footerFallback) && prices.size ? buildFooterIndex(prices) : null),
+    [prices, lotLang?.footerOnly, lotLang?.footerFallback],
   );
   footerIndexRef.current = footerIndex;
 
@@ -402,6 +402,13 @@ export function App() {
         engineRef.current = engine;
         setOcrStatus('pronto');
       }
+      // Idioma do leitor de nomes conforme o lote (ex.: japonês).
+      const ocrLang = lotLangRef.current?.ocrLang ?? 'eng';
+      if (engineRef.current.setNameLanguage) {
+        if (ocrLang !== 'eng') setOcrStatus('carregando japonês…');
+        await engineRef.current.setNameLanguage(ocrLang, gameRef.current.nameCharWhitelist);
+        setOcrStatus('pronto');
+      }
       streamRef.current = await cameraPromise;
       // Os nomes das câmeras só aparecem depois da permissão.
       setCameras(await listCameras());
@@ -419,6 +426,7 @@ export function App() {
           autoRotate,
           needsEdition: (name) => flowRef.current!.needsEdition(name),
           getFooterIndex: () => (lotLangRef.current?.footerOnly ? footerIndexRef.current : null),
+          getFooterFallback: () => (lotLangRef.current?.footerFallback ? footerIndexRef.current : null),
         });
       }
       scannerRef.current.start();
@@ -632,6 +640,9 @@ export function App() {
                   onClick={() => {
                     setLotLangId(l.id);
                     savePref('lotLang', l.id);
+                    lotLangRef.current = l;
+                    // Se a câmera já está rodando, troca o idioma do leitor na hora.
+                    void engineRef.current?.setNameLanguage?.(l.ocrLang ?? 'eng', gameRef.current.nameCharWhitelist);
                   }}
                 >
                   {l.label}
@@ -641,8 +652,14 @@ export function App() {
           )}
           {lotLang?.footerOnly && (
             <p className="muted small">
-              Em {lotLang.label}, a carta é reconhecida pelo <b>rodapé</b> (edição + número, ex.: "NEO • JA 123"):
+              Em {lotLang.label}, a carta é reconhecida pelo <b>rodapé</b> (edição + número, ex.: "ONE • PH 010"):
               funciona com cartas de 2015 em diante. O preço é o da mesma edição/número em inglês.
+            </p>
+          )}
+          {lotLang?.ocrLang && (
+            <p className="muted small">
+              Em {lotLang.label}, o app lê o <b>nome em {lotLang.label}</b> (cartas antigas também) e, se não
+              reconhecer, o <b>rodapé</b> (cartas de 2015 em diante). O preço é o da versão em inglês.
             </p>
           )}
           <div className="chips" role="group" aria-label="Acabamento das próximas cartas">

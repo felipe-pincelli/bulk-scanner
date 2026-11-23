@@ -111,9 +111,33 @@ export class TesseractEngine implements OcrEngine {
     return lines;
   }
 
+  private lang: 'eng' | 'jpn' = 'eng';
+
+  /**
+   * Troca o idioma dos leitores de nome. O modelo japonês (~2 MB) só é baixado na
+   * primeira vez que for usado. Em japonês não há lista de caracteres permitidos.
+   */
+  async setNameLanguage(lang: 'eng' | 'jpn', whitelist: string) {
+    if (lang === this.lang || !this.workers.length) return;
+    this.lang = lang;
+    this.whitelist = whitelist;
+    await Promise.all(
+      this.workers.map(async (w, i) => {
+        await w.reinitialize(lang, OEM.LSTM_ONLY);
+        await w.setParameters({
+          tessedit_pageseg_mode: MODES[i],
+          tessedit_char_whitelist: lang === 'eng' ? whitelist : '',
+          preserve_interword_spaces: '1',
+          user_defined_dpi: '300',
+        });
+      }),
+    );
+  }
+
   /** Troca os caracteres aceitos no nome (cada jogo tem os seus). */
   async setNameWhitelist(whitelist: string) {
     this.whitelist = whitelist;
+    if (this.lang !== 'eng') return; // em japonês não se usa lista de caracteres
     await Promise.all(this.workers.map((w) => w.setParameters({ tessedit_char_whitelist: whitelist })));
   }
 

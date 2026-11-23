@@ -19,6 +19,8 @@ export interface OcrEngine {
    * `lineHint`: faixa onde provavelmente está o nome (lida também como linha única).
    */
   readLines(image: HTMLCanvasElement, lineHint?: LineHint | null): Promise<OcrLine[]>;
+  /** Troca o idioma dos leitores de NOME ("eng" ou "jpn"); o do rodapé fica em inglês. */
+  setNameLanguage?(lang: 'eng' | 'jpn', whitelist: string): Promise<void>;
   /** Lê UMA linha de texto (imagem já recortada), ex.: a versão do nome na Lorcana. */
   readSingleLine(image: HTMLCanvasElement): Promise<OcrLine | null>;
   /** Lê o texto pequeno do rodapé da carta (número de colecionador, edição). */

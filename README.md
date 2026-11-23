@@ -75,7 +75,13 @@ valores. Enquanto houver lote ativo, aparece um aviso sobre a câmera
 um Moat num lote foil), o app usa o preço normal dela. Dá para corrigir carta a
 carta no resumo.
 
-**Cartas em japonês, phyrexiano, coreano, chinês ou russo (Magic):** em
+**Cartas em japonês (Magic):** em **Próximas cartas → Idioma → japonês**, o app
+troca o leitor para o modelo japonês (baixado só na primeira vez, ~2 MB) e lê o
+**nome em japonês** (ex.: "稲妻" → Lightning Bolt), o que cobre também cartas
+antigas. Se o nome não for reconhecido, tenta o rodapé (abaixo). Cartas em inglês
+misturadas no lote continuam sendo reconhecidas.
+
+**Cartas em phyrexiano, coreano, chinês ou russo (Magic):** em
 **Próximas cartas → Idioma**, escolha o idioma do lote. Nesses idiomas o app não
 tenta ler o nome: ele identifica a carta **pelo rodapé** (edição + número, que nas
 cartas de 2015 em diante vêm em letras latinas, ex.: `NEO • JA 123`, `ONE • PH 010`),
@@ -357,8 +363,8 @@ app não muda.
 
 ## 10. Limitações conhecidas
 
-- **Idiomas: inglês e português pelo nome; japonês, phyrexiano, coreano, chinês e
-  russo pelo rodapé** (cartas de 2015 em diante, Magic). Cartas em português são reconhecidas pelo nome
+- **Idiomas (Magic): inglês, português e japonês pelo nome; phyrexiano, coreano,
+  chinês e russo pelo rodapé** (só cartas de 2015 em diante). Cartas em português são reconhecidas pelo nome
   impresso ("Relâmpago" → Lightning Bolt) e o painel mostra "lido como: …". O
   **preço usado é o da versão em inglês** (TCGplayer); no Brasil a versão em
   português pode valer diferente. Outros idiomas (japonês etc.) não são

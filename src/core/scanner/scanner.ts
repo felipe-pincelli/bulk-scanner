@@ -3,7 +3,7 @@ import type { GameProvider, Printing } from '../games/types';
 import { estimateCard, footerRegion, ghostCard } from '../edition/footer';
 import { parseFooter, type EditionResult } from '../edition/parseFooter';
 import { identifyByFooter, type FooterIndex } from '../edition/footerIndex';
-import { normalize, type FuzzyMatcher, type MatchResult } from '../matching/fuzzyMatcher';
+import { normalize, weightedLength, type FuzzyMatcher, type MatchResult } from '../matching/fuzzyMatcher';
 import type { OcrEngine, OcrLine } from '../ocr/ocrEngine';
 import { cropForOcr, findTextRow, PAD } from '../ocr/preprocess';
 import { correctionDeg, ORIENTATIONS, rotateRegion, type Orientation } from './orientation';
@@ -77,6 +77,8 @@ export interface ScannerOptions {
    * a carta é identificada SÓ pela edição + número do rodapé, sem ler o nome.
    */
   getFooterIndex?: () => FooterIndex | null;
+  /** Se devolver um catálogo: quando o nome não for reconhecido, tenta o rodapé. */
+  getFooterFallback?: () => FooterIndex | null;
 }
 
 /** Tentativas de ler o rodapé por carta (cada uma ~uma leitura extra). */
@@ -115,7 +117,7 @@ function pickBest(lines: OcrLine[], matcher: FuzzyMatcher | null, minScore: numb
   for (const line of candidates) {
     const m = matcher?.match(line.text) ?? null;
     if (!m) continue;
-    const len = normalize(m.matchText).length;
+    const len = weightedLength(normalize(m.matchText));
     if (len < SHORT_NAME) {
       const minConf = line.fromHint ? SHORT_MIN_CONFIDENCE_HINT : SHORT_MIN_CONFIDENCE;
       if (line.confidence >= minConf && (!bestShort || m.score > bestShort.score)) bestShort = m;
@@ -197,31 +199,12 @@ export class Scanner {
     let ocrMs = 0;
     for (const o of plan) {
       orientation = o;
-      // Onde está a carta: pela faixa do nome (sem precisar ler o nome — basta
-      // achar a barra) ou pela silhueta na tela, alternando entre as leituras.
-      const bandRegion = rotateRegion(game.nameSearchBand, o);
-      const scale = Math.min(2, NAME_BAND_PX / (game.nameRegion.h * zone.h));
-      const band = cropForOcr(video, subRect(zone, bandRegion), this.canvas, { rotateDeg: correctionDeg(o), scale });
-      const hint = findTextRow(band, NAME_BAND_PX * 0.45, game.nameHintSpan, game.nameIsTallestText);
-      const fromBar = estimateCard(hint, game.nameSearchBand, scale * zone.w, game.geometry, game.cardAspect);
-      // Fica com a estimativa que funcionou da última vez; troca só quando falha.
-      const useBar = !!fromBar && this.footerUseBar;
-      const card = useBar ? fromBar! : ghostCard(game.cardAspect);
-      const region = footerRegion(card, game.geometry, useBar ? 0 : (game.geometry.footerSlack ?? 0.06));
-      if (!region) continue;
-      const footerScale = Math.min(4, FOOTER_TEXT_PX / (game.geometry.footerTextH * card.h * zone.h));
-      crop = cropForOcr(video, subRect(zone, rotateRegion(region, o)), this.footerCanvas, {
-        rotateDeg: correctionDeg(o),
-        scale: footerScale,
-        invertIfDark: true,
-        localBinarizePx: FOOTER_TEXT_PX,
-      });
-      const t0 = performance.now();
-      text = await this.opts.engine.readFooter(crop);
-      ocrMs += performance.now() - t0;
-      hit = identifyByFooter(text, index);
+      const r = await this.footerAttempt(video, zone, o, index);
+      ocrMs += r.ms;
+      text = r.text;
+      if (r.crop) crop = r.crop;
+      hit = r.hit;
       if (hit) break;
-      this.footerUseBar = !this.footerUseBar;
     }
     if (hit) this.goodOrientation = orientation;
     // Um quadro sem leitura no meio não zera a confirmação (o rodapé é pequeno e
@@ -256,6 +239,38 @@ export class Scanner {
           }
         : undefined,
     });
+  }
+
+  /** Uma tentativa de identificar a carta pelo rodapé, numa orientação. */
+  private async footerAttempt(video: HTMLVideoElement, zone: Rect, o: Orientation, index: FooterIndex) {
+    const { game } = this.opts;
+    // Onde está a carta: pela faixa do nome (sem precisar ler o nome — basta
+    // achar a barra) ou pela silhueta na tela.
+    const scale = Math.min(2, NAME_BAND_PX / (game.nameRegion.h * zone.h));
+    const band = cropForOcr(video, subRect(zone, rotateRegion(game.nameSearchBand, o)), this.subCanvas, {
+      rotateDeg: correctionDeg(o),
+      scale,
+    });
+    const hint = findTextRow(band, NAME_BAND_PX * 0.45, game.nameHintSpan, game.nameIsTallestText);
+    const fromBar = estimateCard(hint, game.nameSearchBand, scale * zone.w, game.geometry, game.cardAspect);
+    // Fica com a estimativa que funcionou da última vez; troca só quando falha.
+    const useBar = !!fromBar && this.footerUseBar;
+    const card = useBar ? fromBar! : ghostCard(game.cardAspect);
+    const region = footerRegion(card, game.geometry, useBar ? 0 : (game.geometry.footerSlack ?? 0.06));
+    if (!region) return { hit: null, text: '', crop: null, ms: 0 };
+    const footerScale = Math.min(4, FOOTER_TEXT_PX / (game.geometry.footerTextH * card.h * zone.h));
+    const crop = cropForOcr(video, subRect(zone, rotateRegion(region, o)), this.footerCanvas, {
+      rotateDeg: correctionDeg(o),
+      scale: footerScale,
+      invertIfDark: true,
+      localBinarizePx: FOOTER_TEXT_PX,
+    });
+    const t0 = performance.now();
+    const text = await this.opts.engine.readFooter(crop);
+    const ms = performance.now() - t0;
+    const hit = identifyByFooter(text, index);
+    if (!hit) this.footerUseBar = !this.footerUseBar;
+    return { hit, text, crop, ms };
   }
 
   private async readEdition(
@@ -391,7 +406,35 @@ export class Scanner {
           usedScale = scale;
           if (best && best.score >= minScore) break;
         }
-        const match = best && best.score >= minScore ? best : null;
+        let match = best && best.score >= minScore ? best : null;
+        // Reserva (ex.: lote japonês): nome não reconhecido → tenta o rodapé.
+        let footerEdition: EditionRead | undefined;
+        const fallback = !match ? (this.opts.getFooterFallback?.() ?? null) : null;
+        if (fallback) {
+          const t0 = performance.now();
+          // Primeiro na orientação principal; se não achar, na "de busca" do quadro
+          // (que se reveza entre as outras), para não ficar presa numa orientação.
+          let r = await this.footerAttempt(video, zone, first, fallback);
+          let ro = first;
+          if (!r.hit && plan.length > 1) {
+            ro = plan[1];
+            r = await this.footerAttempt(video, zone, ro, fallback);
+          }
+          ocrMs += performance.now() - t0;
+          if (r.hit) {
+            orientation = ro;
+            this.goodOrientation = ro;
+            match = best = { cardName: r.hit.cardName, matchText: r.hit.cardName, score: 1 };
+            footerEdition = {
+              cardName: r.hit.cardName,
+              result: { printing: r.hit.printing, set: r.hit.printing.set, candidates: [r.hit.printing] },
+              done: true,
+              attempts: 1,
+              crop: r.crop,
+              rawText: r.text,
+            };
+          }
+        }
         if (match) this.goodOrientation = orientation;
 
         if (match && match.cardName === this.lastName) this.streak++;
@@ -405,8 +448,9 @@ export class Scanner {
         if (match && this.edition?.cardName !== match.cardName) {
           this.edition = { cardName: match.cardName, attempts: 0, done: false };
         }
-        const printings = match && this.opts.needsEdition?.(match.cardName);
-        if (match && printings && this.edition && !this.edition.done) {
+        const printings = match && !footerEdition && this.opts.needsEdition?.(match.cardName);
+        if (footerEdition) edition = footerEdition;
+        else if (match && printings && this.edition && !this.edition.done) {
           const t0 = performance.now();
           edition = await this.readEdition(video, zone, orientation, usedHint, usedScale, printings);
           ocrMs += performance.now() - t0;

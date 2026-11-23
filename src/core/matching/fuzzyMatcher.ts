@@ -18,14 +18,34 @@ export interface MatchResult {
   score: number;
 }
 
+/** Caracteres de escrita CJK (japonês/chinês/coreano). */
+const CJK = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
+const CJK_SPACES =
+  /(?<=[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}])\s+(?=[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}])/gu;
+
 export function normalize(text: string): string {
   return text
+    .normalize('NFKC') // letras "largas" (ｱ, Ａ) viram normais
     .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '') // remove acentos
+    .replace(/[\u0300-\u036f]/g, '') // remove acentos latinos (o "゛" japonês fica)
+    .normalize('NFC')
     .toLowerCase()
-    .replace(/[^a-z0-9 ]+/g, '')
+    .replace(/æ/g, 'ae')
+    .replace(/[^\p{L}\p{N} ]+/gu, '') // mantém letras de qualquer escrita
+    .replace(CJK_SPACES, '') // o OCR de japonês põe espaços entre os caracteres
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+/**
+ * "Tamanho" de um nome para as regras de nome curto: cada caractere japonês/
+ * chinês/coreano vale 2 (carrega tanta informação quanto várias letras latinas;
+ * "稲妻" = Lightning Bolt tem só 2 caracteres).
+ */
+export function weightedLength(normalized: string): number {
+  let n = 0;
+  for (const ch of normalized) n += CJK.test(ch) ? 2 : 1;
+  return n;
 }
 
 function trigrams(text: string): Set<string> {
@@ -69,7 +89,7 @@ export class FuzzyMatcher {
     for (const entry of entries) {
       const key = normalize(entry.matchText);
       // Nomes com menos de 3 letras: quase não existem e viram falso positivo fácil.
-      if (key.length < 3 || seen.has(key)) continue;
+      if (weightedLength(key) < 3 || seen.has(key)) continue;
       seen.add(key);
       const id = this.keys.length;
       this.keys.push(key);
@@ -89,7 +109,7 @@ export class FuzzyMatcher {
 
   match(rawText: string, candidatesToCheck = 40): MatchResult | null {
     const query = normalize(rawText);
-    if (query.length < 3) return null;
+    if (weightedLength(query) < 3) return null;
 
     // Fase 1: contar trigramas em comum.
     const touched: number[] = [];
@@ -109,15 +129,17 @@ export class FuzzyMatcher {
     // pode ter sobras antes/depois do nome (borda, símbolos de mana, arte).
     // Então também comparamos o nome com "janelas" do texto que começam no
     // início de cada palavra.
+    // Em japonês não há espaços: as janelas podem começar em qualquer caractere.
     const wordStarts = [0];
-    for (let i = 0; i < query.length; i++) if (query[i] === ' ') wordStarts.push(i + 1);
+    const cjkQuery = CJK.test(query);
+    for (let i = 0; i < query.length; i++) if (query[i] === ' ' || (cjkQuery && i > 0)) wordStarts.push(cjkQuery ? i : i + 1);
 
     let best: MatchResult | null = null;
     for (const id of candidates) {
       const key = this.keys[id];
       // Nomes muito curtos ("Ice", "Opt") só valem se a linha for exatamente
       // o nome — senão qualquer pedaço de lixo viraria um falso positivo.
-      if (key.length < 5) {
+      if (weightedLength(key) < 5) {
         // Aceita sobras de 1 caractere em volta (ex.: "i ice" -> "ice").
         const core = query.split(' ').filter((t) => t.length > 1).join(' ');
         if ((query === key || core === key) && (!best || best.score < 1)) {
