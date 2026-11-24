@@ -49,4 +49,11 @@ export const onepieceProvider: GameProvider = {
   exportPlainLabel: 'Lista simples (só nome)',
   importHint:
     'Cole a lista no importador do site ou simulador (ex.: OPTCGSim, deck builders). Versão parallel/especial não entra no código — confira no CSV.',
+  liga: {
+    siteName: 'LigaOnePiece',
+    // "OP11-041" → "OP11".
+    setCode: (set, n) => (n?.includes('-') ? n.split('-')[0] : set).toLowerCase().replace(/-\d+$/, ''),
+    cardNumber: (n) => n ?? '',
+    extras: { foil: 'Parallel', etched: '' },
+  },
 };

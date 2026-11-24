@@ -1,6 +1,42 @@
 import { parseIndex } from '../indexFormat';
 import type { GameProvider } from '../types';
 
+/**
+ * Siglas da LigaMagic que diferem das oficiais (Scryfall). A Liga usa as siglas
+ * oficiais em minúsculas, exceto em algumas edições antigas (códigos de 2 letras).
+ * Confirmadas por um arquivo exportado da Liga: usg, lrw, pcy, scg, vis, sta, tsb.
+ * As demais seguem o mesmo padrão clássico de 2 letras (dedução, a confirmar).
+ */
+const LIGA_SET_CODES: Record<string, string> = {
+  // confirmadas
+  usg: 'us',
+  lrw: 'lw',
+  pcy: 'pr',
+  scg: 'sc',
+  vis: 'vi',
+  sta: 'soa',
+  tsb: 'tsts',
+  // padrão clássico de 2 letras (a confirmar)
+  mir: 'mi',
+  wth: 'wl',
+  tmp: 'te',
+  sth: 'sh',
+  exo: 'ex',
+  ulg: 'ul',
+  uds: 'ud',
+  mmq: 'mm',
+  nem: 'ne',
+  inv: 'in',
+  pls: 'ps',
+  apc: 'ap',
+  ody: 'od',
+  tor: 'tr',
+  jud: 'ju',
+  ons: 'on',
+  lgn: 'le',
+  mor: 'mt',
+};
+
 export const magicProvider: GameProvider = {
   id: 'magic',
   displayName: 'Magic: The Gathering',
@@ -43,4 +79,10 @@ export const magicProvider: GameProvider = {
   },
   exportPlainLabel: 'Lista simples (só nome) — qualquer site (MTGGoldfish, TappedOut…)',
   importHint: 'No site, procure "Import" / "Importar" e cole a lista. Ex.: Moxfield → Collection ou um deck novo → Import.',
+  liga: {
+    siteName: 'LigaMagic',
+    setCode: (set) => LIGA_SET_CODES[set] ?? set.toLowerCase(),
+    cardNumber: (n) => n ?? '',
+    extras: { foil: 'Foil', etched: 'Foil Etched' },
+  },
 };

@@ -42,4 +42,11 @@ export const yugiohProvider: GameProvider = {
   },
   exportPlainLabel: 'Lista simples (só nome) — YGOPRODeck, Dueling Book…',
   importHint: 'Cole a lista no importador do site (ex.: YGOPRODeck → Collection/Deck → Import). Se o site não aceitar o código, use a lista simples.',
+  liga: {
+    siteName: 'LigaYuGiOh',
+    // "LOB-EN001" → "LOB" (a sigla da coleção é o começo do código).
+    setCode: (set, n) => (n?.includes('-') ? n.split('-')[0] : set).toLowerCase().replace(/-\d+$/, ''),
+    cardNumber: (n) => n ?? '',
+    extras: { foil: '1ª Edição', etched: '' },
+  },
 };

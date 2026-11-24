@@ -39,4 +39,11 @@ export const pokemonProvider: GameProvider = {
   },
   exportPlainLabel: 'Lista simples (só nome)',
   importHint: 'Cole a lista no importador do site ou app (ex.: Pokémon TCG Live, Limitless, TCGplayer). Siglas de coleção vêm do TCGplayer e podem diferir em alguns sites.',
+  liga: {
+    siteName: 'LigaPokémon',
+    // Sigla do TCGplayer (pode diferir da Liga em algumas coleções).
+    setCode: (set) => set.toLowerCase().replace(/-\d+$/, ''),
+    cardNumber: (n) => (n ? n.split('/')[0].replace(/^0+(?=\d)/, '') : ''),
+    extras: { foil: 'Reverse Foil', etched: '1ª Edição' },
+  },
 };

@@ -166,6 +166,17 @@ Ao tocar em **Parar**:
   - **Lista simples** (`2 Moat`): só quantidade e nome, aceita por praticamente
     qualquer site (**MTGGoldfish**, **TappedOut**, **Deckstats**, **Scryfall**…).
   - Nas listas, cópias repetidas são somadas.
+  - **Liga** (LigaMagic, LigaPokémon, LigaYuGiOh, LigaOnePiece):
+    - **coleção (CSV)** no formato que a própria Liga exporta: separador vírgula,
+      cabeçalhos `Edicao (PTBR)`, `Edicao (EN)`, `Edicao (Sigla)`, `Card (PT)`,
+      `Card (EN)`, `Quantidade`, `Qualidade (M NM SP MP HP D)`,
+      `Idioma (BR EN DE ES FR IT JP KO RU TW)`, `Raridade (M R U C)`,
+      `Cor (W U B R G M A L)`, `Extras`, `Card #`, `Comentario`, e a mesma
+      codificação. Siglas em minúsculas; edições antigas usam as siglas próprias
+      da Liga (ex.: Urza's Saga = `us`). Cartas lidas em português saem com o
+      nome em português e idioma `BR`; lotes em japonês com `JP`. Na Liga:
+      Coleções → Importar.
+    - **lista de texto** (deck / lista de compras): `1 Lightning Bolt [m10]`.
   - **CSV** para Excel, Google Sheets ou Numbers, com quantidade, edição e número
     (quando identificados), preços em R$ e US$ e a edição mais cara. Usa o padrão brasileiro: `;` como separador e vírgula
     decimal.

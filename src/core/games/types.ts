@@ -134,4 +134,17 @@ export interface GameProvider {
   exportPlainLabel: string;
   /** Dica de onde importar a lista. */
   importHint: string;
+  /**
+   * Exportação no formato da "Liga" do jogo (LigaMagic, LigaPokémon, LigaYuGiOh,
+   * LigaOnePiece — todas na mesma plataforma).
+   */
+  liga?: {
+    siteName: string;
+    /** Sigla da edição como a Liga usa (ex.: "LOB" a partir de "LOB-EN001"). */
+    setCode: (set: string, number: string | null) => string;
+    /** Número da carta para a coluna "Card #". */
+    cardNumber: (number: string | null) => string;
+    /** Texto da coluna "Extras" para cada acabamento. */
+    extras: { foil: string; etched: string };
+  };
 }

@@ -20,15 +20,22 @@ async function copyText(text: string) {
 
 export function ExportPanel({ entries, game, minBrl }: { entries: SessionEntry[]; game: GameProvider; minBrl: number }) {
   const [scope, setScope] = useState<ExportScope>(() => loadPref('exportScope', 'alerts') as ExportScope);
-  const [format, setFormat] = useState<ExportFormat>(() => {
+  let [format, setFormat] = useState<ExportFormat>(() => {
     const f = loadPref('exportFormat', 'textWithSet');
-    return f === 'csv' || f === 'text' ? f : 'textWithSet';
+    return f === 'csv' || f === 'text' || f === 'ligaCsv' || f === 'ligaText' ? (f as ExportFormat) : 'textWithSet';
   });
   const [done, setDone] = useState('');
 
+  // Formato da Liga num jogo sem Liga (ex.: Lorcana): usa a lista com edição.
+  if (!game.liga && (format === 'ligaCsv' || format === 'ligaText')) format = 'textWithSet';
   const count = countExport(entries, scope, minBrl);
   const content = exportContent(entries, scope, format, game, minBrl);
-  const file = () => new File([content.bom ? '\uFEFF' : '', content.text], content.filename, { type: content.mime });
+  const file = () =>
+    new File(
+      'bytes' in content && content.bytes ? [content.bytes as BlobPart] : [content.bom ? '\uFEFF' : '', content.text],
+      content.filename,
+      { type: content.mime },
+    );
   const canShareFile = typeof navigator.canShare === 'function' && navigator.canShare({ files: [file()] });
 
   function flashDone(msg: string) {
@@ -85,6 +92,8 @@ export function ExportPanel({ entries, game, minBrl }: { entries: SessionEntry[]
           >
             <option value="textWithSet">{game.exportWithSet.label}</option>
             <option value="text">{game.exportPlainLabel}</option>
+            {game.liga && <option value="ligaCsv">{game.liga.siteName} — coleção (CSV no modelo da Liga)</option>}
+            {game.liga && <option value="ligaText">{game.liga.siteName} — lista de texto (deck / compras)</option>}
             <option value="csv">CSV — planilha (Excel, Google Sheets) com preços</option>
           </select>
         </label>
@@ -92,7 +101,11 @@ export function ExportPanel({ entries, game, minBrl }: { entries: SessionEntry[]
         <p className="muted small">
           {format === 'csv'
             ? 'Abra o arquivo .csv no Excel, Google Sheets ou Numbers.'
-            : game.importHint}{' '}
+            : format === 'ligaCsv'
+              ? `Na ${game.liga?.siteName}: Coleções → Importar, escolha o modelo "Padrão LigaMagic CSV" e envie o arquivo.`
+              : format === 'ligaText'
+                ? `Na ${game.liga?.siteName}: cole na importação de deck ou de lista de compras.`
+                : game.importHint}{' '}
           {format === 'textWithSet' && 'Cartas sem edição identificada saem só com o nome. '}
           {count} {count === 1 ? 'carta' : 'cartas'}.
         </p>
